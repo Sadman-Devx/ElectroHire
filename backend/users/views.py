@@ -64,7 +64,8 @@ class VerifyOTPView(APIView):
 
         # সবচেয়ে সাম্প্রতিক, ব্যবহার না-হওয়া OTP খুঁজবে
         otp_entry = (
-            OTP.objects.filter(email=email, is_used=False).order_by("-created_at").first()
+            OTP.objects.filter(email=email, is_used=False).order_by(
+                "-created_at").first()
         )
 
         if otp_entry is None or otp_entry.otp_code != submitted_code:
