@@ -63,7 +63,9 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'electrohire.urls'
+
 AUTH_USER_MODEL = 'users.User'
+
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",   # Vite-এর Default Port
     "http://localhost:3000",
@@ -153,4 +155,16 @@ import os
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# forword work 
+# ── OTP config (Day 2, Dev 1) ─────────────────────────────────────
+OTP_LENGTH = 6
+OTP_EXPIRY_MINUTES = 5
+
+# ── Email — console backend in dev, prints the OTP straight to the
+#    terminal running `runserver`. Switch to SMTP once you have real
+#    credentials (production only). ──
+if DEBUG:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+
+DEFAULT_FROM_EMAIL = 'noreply@electrohire.com'

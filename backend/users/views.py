@@ -1,13 +1,45 @@
-from rest_framework import status
 from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from core.responses import error_response, first_error_message, success_response
+
 from .models import OTP, User
-from .serializers import VerifyOTPSerializer
+from .serializers import RegisterSerializer, VerifyOTPSerializer
+from .utils import send_otp_email
 
 
+# ── Dev 1, Day 2 ───────────────────────────────────────────────────
+class RegisterView(APIView):
+    """
+    POST /api/auth/register/
+
+    Creates the account (unverified, inactive) and emails a 6-digit OTP.
+    Verification + JWT issuance is Dev 2's VerifyOTPView below.
+    """
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = RegisterSerializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response(
+                first_error_message(serializer.errors),
+                status_code=400,
+                errors=serializer.errors,
+            )
+
+        user = serializer.save()
+
+        otp = OTP.create_for_email(user.email)
+        send_otp_email(user.email, otp.otp_code)
+
+        return success_response(message="OTP sent to your email", status_code=201)
+
+
+# ── Dev 2, Day 2 — logic unchanged from the original push, only the
+#    hand-written Response(...) dicts were swapped for the shared
+#    core.responses helpers (identical JSON output — see tests) ──────
 class VerifyOTPView(APIView):
     """
     POST /api/auth/verify-otp/
@@ -23,9 +55,8 @@ class VerifyOTPView(APIView):
     def post(self, request):
         serializer = VerifyOTPSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response(
-                {"status": "error", "message": "Invalid input", "errors": serializer.errors},
-                status=status.HTTP_400_BAD_REQUEST,
+            return error_response(
+                "Invalid input", status_code=400, errors=serializer.errors
             )
 
         email = serializer.validated_data["email"].lower().strip()
@@ -33,27 +64,21 @@ class VerifyOTPView(APIView):
 
         # সবচেয়ে সাম্প্রতিক, ব্যবহার না-হওয়া OTP খুঁজবে
         otp_entry = (
-            OTP.objects.filter(email=email, is_used=False).order_by("-created_at").first()
+            OTP.objects.filter(email=email, is_used=False).order_by(
+                "-created_at").first()
         )
 
         if otp_entry is None or otp_entry.otp_code != submitted_code:
-            return Response(
-                {"status": "error", "message": "Invalid or expired OTP"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return error_response("Invalid or expired OTP", status_code=400)
 
         if otp_entry.is_expired():
-            return Response(
-                {"status": "error", "message": "Invalid or expired OTP"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return error_response("Invalid or expired OTP", status_code=400)
 
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            return Response(
-                {"status": "error", "message": "No account found for this email"},
-                status=status.HTTP_404_NOT_FOUND,
+            return error_response(
+                "No account found for this email", status_code=404
             )
 
         # OTP consume করো (একবারই ব্যবহার হবে) + user verify করো
@@ -66,15 +91,12 @@ class VerifyOTPView(APIView):
 
         refresh = RefreshToken.for_user(user)
 
-        return Response(
-            {
-                "status": "success",
-                "message": "Account verified",
-                "data": {
-                    "access_token": str(refresh.access_token),
-                    "refresh_token": str(refresh),
-                    "role": user.role,
-                },
+        return success_response(
+            message="Account verified",
+            data={
+                "access_token": str(refresh.access_token),
+                "refresh_token": str(refresh),
+                "role": user.role,
             },
-            status=status.HTTP_200_OK,
+            status_code=200,
         )

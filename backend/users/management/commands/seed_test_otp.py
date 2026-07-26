@@ -20,7 +20,6 @@ class Command(BaseCommand):
         user, created = User.objects.get_or_create(
             email=email,
             defaults={
-                "username": email,
                 "name": "Test User",
                 "phone": "01700000000",
                 "role": "user",

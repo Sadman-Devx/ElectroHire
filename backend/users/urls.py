@@ -1,7 +1,11 @@
-from django.contrib import admin
-from django.urls import include, path
+from django.urls import path
+
+from .views import RegisterView, VerifyOTPView
+
+app_name = "users"
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('api/auth/', include('users.urls')),
+    path("register/", RegisterView.as_view(), name="register"),
+    path("verify-otp/", VerifyOTPView.as_view(), name="verify-otp"),
+    # path("login/", LoginView.as_view(), name="login"),  # Dev 1, Day 3
 ]
