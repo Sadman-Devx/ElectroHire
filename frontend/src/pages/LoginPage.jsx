@@ -8,12 +8,13 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { validateLoginForm, hasErrors } from '@/lib/validators'
-import { login } from '@/services/authService'
+import { useAuth } from '@/context/useAuth'
 
 const INITIAL_VALUES = { email: '', password: '' }
 
 function LoginPage() {
   const navigate = useNavigate()
+  const { login } = useAuth()
 
   const [values, setValues] = useState(INITIAL_VALUES)
   const [touched, setTouched] = useState({})
@@ -45,9 +46,10 @@ function LoginPage() {
 
     setSubmitting(true)
     try {
+      // login() calls POST /auth/login/, stores the returned JWT pair
+      // in localStorage, and updates AuthContext's state — see
+      // src/context/AuthContext.jsx.
       await login(values)
-      // Real token storage is Day 3, Dev 1's AuthContext (see
-      // src/context/README.md). For now this just proves the flow.
       navigate('/')
     } catch (error) {
       setSubmitError(error.message || 'Something went wrong. Please try again.')

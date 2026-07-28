@@ -108,6 +108,24 @@ class VerifyOTPSerializer(serializers.Serializer):
     otp = serializers.CharField(max_length=6, min_length=6)
 
 
+# ── Dev 1, Day 3 ───────────────────────────────────────────────────
+class LoginSerializer(serializers.Serializer):
+    """
+    Backs POST /api/auth/login/ (per API Contract).
+
+    Only shape-validates the input (well-formed email, password
+    present). The actual credential/verified-status check happens in
+    LoginView, since that needs DB access and distinguishing
+    "wrong credentials" from "not verified yet" — not something a
+    serializer alone can decide.
+    """
+
+    email = serializers.EmailField()
+    # trim_whitespace=False: a password's exact character content
+    # matters, unlike the other trimmed fields on this form.
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+
 class UserPublicSerializer(serializers.ModelSerializer):
     class Meta:
         model = User

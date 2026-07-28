@@ -1,14 +1,25 @@
-import { describe, it, expect } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 
 import App from '@/App'
+import { AuthProvider } from '@/context/AuthContext'
+import { register } from '@/services/authService'
+
+// authService.register now makes a real axios call — mock it so tests
+// control what the "backend" returns instead of hitting the network.
+vi.mock('@/services/authService', () => ({
+  login: vi.fn(),
+  register: vi.fn(),
+}))
 
 function renderSignup() {
   return render(
     <MemoryRouter initialEntries={['/signup']}>
-      <App />
+      <AuthProvider>
+        <App />
+      </AuthProvider>
     </MemoryRouter>
   )
 }
@@ -20,6 +31,12 @@ async function fillValidForm(user) {
   await user.type(screen.getByLabelText(/phone number/i), '01712345678')
   await user.type(screen.getByLabelText(/^password$/i), 'strongpassword123')
 }
+
+beforeEach(() => {
+  register.mockReset()
+  // Default: signup succeeds, matching the API Contract's response shape.
+  register.mockResolvedValue({ status: 'success', message: 'OTP sent to your email' })
+})
 
 describe('SignupPage', () => {
   it('renders both role cards, unselected by default', () => {
@@ -105,28 +122,39 @@ describe('SignupPage', () => {
   })
 
   it('submits successfully with valid data and navigates to the OTP step', async () => {
+    let resolveRegister
+    register.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRegister = resolve
+        })
+    )
+
     const user = userEvent.setup()
     renderSignup()
 
     await fillValidForm(user)
     await user.click(screen.getByRole('button', { name: /create account/i }))
 
-    // Button shows the loading state
+    // Button shows the loading state while the request is in flight.
     expect(await screen.findByText(/creating account/i)).toBeInTheDocument()
+
+    resolveRegister({ status: 'success', message: 'OTP sent to your email' })
 
     // Then navigates to the (placeholder) verify-otp page, carrying the email
     expect(await screen.findByRole('heading', { name: /account created/i })).toBeInTheDocument()
     expect(screen.getByText(/mahmudul@email\.com/i)).toBeInTheDocument()
   })
 
-  it('shows the mock "Email already exists" error without navigating away', async () => {
+  it('shows the backend "Email already exists" error without navigating away', async () => {
+    const error = new Error('Email already exists')
+    error.status = 400
+    register.mockRejectedValueOnce(error)
+
     const user = userEvent.setup()
     renderSignup()
 
     await fillValidForm(user)
-    await user.clear(screen.getByLabelText(/email address/i))
-    await user.type(screen.getByLabelText(/email address/i), 'taken@example.com')
-
     await user.click(screen.getByRole('button', { name: /create account/i }))
 
     expect(await screen.findByText(/email already exists/i)).toBeInTheDocument()

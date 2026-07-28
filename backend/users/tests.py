@@ -239,10 +239,170 @@ class VerifyOTPAPITests(APITestCase):
 
 
 # ════════════════════════════════════════════════════════════════
-# Combined — proves Dev 1's register and Dev 2's verify-otp actually
-# interoperate end-to-end, not just in isolation.
+# Dev 1 — POST /api/auth/login/  (Day 3)
 # ════════════════════════════════════════════════════════════════
-class FullSignupJourneyTests(APITestCase):
+class LoginAPITests(APITestCase):
+    def setUp(self):
+        self.url = reverse("users:login")
+        self.user = User.objects.create_user(
+            email="mahmudul@email.com",
+            password="strongpassword123",
+            name="Mahmudul Hasan",
+            phone="01712345678",
+            role="user",
+            is_active=True,
+            verified=True,
+        )
+
+    def test_login_success_returns_contract_shape(self):
+        response = self.client.post(
+            self.url,
+            {"email": "mahmudul@email.com", "password": "strongpassword123"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(body["status"], "success")
+        self.assertIn("access_token", body["data"])
+        self.assertIn("refresh_token", body["data"])
+        self.assertEqual(body["data"]["role"], "user")
+        self.assertEqual(body["data"]["name"], "Mahmudul Hasan")
+
+    def test_login_is_case_insensitive_on_email(self):
+        response = self.client.post(
+            self.url,
+            {"email": "MAHMUDUL@Email.com", "password": "strongpassword123"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_login_wrong_password_rejected(self):
+        response = self.client.post(
+            self.url,
+            {"email": "mahmudul@email.com", "password": "wrongpassword"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["message"], "Invalid email or password")
+
+    def test_login_unknown_email_rejected_with_same_generic_message(self):
+        # Same message as wrong-password above — doesn't leak whether
+        # the account exists.
+        response = self.client.post(
+            self.url,
+            {"email": "nobody@email.com", "password": "whatever123"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["message"], "Invalid email or password")
+
+    def test_login_unverified_account_rejected_with_specific_message(self):
+        User.objects.create_user(
+            email="karim@email.com", password="strongpassword123", name="Karim Uddin",
+            phone="01712345600", role="provider", is_active=False, verified=False,
+        )
+        response = self.client.post(
+            self.url,
+            {"email": "karim@email.com", "password": "strongpassword123"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["message"], "Please verify your email before logging in"
+        )
+
+    def test_login_missing_password_returns_400(self):
+        response = self.client.post(
+            self.url, {"email": "mahmudul@email.com"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_login_missing_email_returns_400(self):
+        response = self.client.post(
+            self.url, {"password": "strongpassword123"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_login_malformed_email_returns_400(self):
+        response = self.client.post(
+            self.url,
+            {"email": "not-an-email", "password": "strongpassword123"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_login_provider_role_returned_correctly(self):
+        User.objects.create_user(
+            email="karim2@email.com", password="strongpassword123", name="Karim Uddin",
+            phone="01712345601", role="provider", is_active=True, verified=True,
+        )
+        response = self.client.post(
+            self.url,
+            {"email": "karim2@email.com", "password": "strongpassword123"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["data"]["role"], "provider")
+
+    def test_login_tokens_are_valid_jwt_for_the_correct_user(self):
+        from rest_framework_simplejwt.tokens import AccessToken
+
+        response = self.client.post(
+            self.url,
+            {"email": "mahmudul@email.com", "password": "strongpassword123"},
+            format="json",
+        )
+        access = response.json()["data"]["access_token"]
+        token = AccessToken(access)
+        self.assertEqual(str(token["user_id"]), str(self.user.id))
+
+    def test_no_auth_required_for_login(self):
+        response = self.client.post(
+            self.url,
+            {"email": "mahmudul@email.com", "password": "strongpassword123"},
+            format="json",
+        )
+        self.assertNotEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+# ════════════════════════════════════════════════════════════════
+# Combined — Signup → Verify → Login all the way through, proving
+# Dev 1's Day 2 register + Day 3 login and Dev 2's Day 2 verify-otp
+# all interoperate on the same account.
+# ════════════════════════════════════════════════════════════════
+class FullAuthJourneyTests(APITestCase):
+    def test_register_then_verify_then_login(self):
+        register_url = reverse("users:register")
+        verify_url = reverse("users:verify-otp")
+        login_url = reverse("users:login")
+
+        self.client.post(register_url, VALID_PAYLOAD, format="json")
+        otp = OTP.objects.get(email="mahmudul@email.com", is_used=False)
+        self.client.post(
+            verify_url, {"email": "mahmudul@email.com", "otp": otp.otp_code}, format="json"
+        )
+
+        login_response = self.client.post(
+            login_url,
+            {"email": "mahmudul@email.com", "password": "strongpassword123"},
+            format="json",
+        )
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(login_response.json()["data"]["name"], "Mahmudul Hasan")
+
+    def test_login_before_verifying_otp_is_rejected(self):
+        register_url = reverse("users:register")
+        login_url = reverse("users:login")
+
+        self.client.post(register_url, VALID_PAYLOAD, format="json")
+
+        login_response = self.client.post(
+            login_url,
+            {"email": "mahmudul@email.com", "password": "strongpassword123"},
+            format="json",
+        )
+        self.assertEqual(login_response.status_code, status.HTTP_403_FORBIDDEN)
     def test_register_then_verify_full_flow(self):
         register_url = reverse("users:register")
         verify_url = reverse("users:verify-otp")

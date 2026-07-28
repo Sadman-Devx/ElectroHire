@@ -2,10 +2,10 @@ from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from core.responses import error_response, first_error_message, success_response
+from core.response import error_response, first_error_message, success_response
 
 from .models import OTP, User
-from .serializers import RegisterSerializer, VerifyOTPSerializer
+from .serializers import LoginSerializer, RegisterSerializer, VerifyOTPSerializer
 from .utils import send_otp_email
 
 
@@ -97,6 +97,61 @@ class VerifyOTPView(APIView):
                 "access_token": str(refresh.access_token),
                 "refresh_token": str(refresh),
                 "role": user.role,
+            },
+            status_code=200,
+        )
+
+
+# ── Dev 1, Day 3 ───────────────────────────────────────────────────
+class LoginView(APIView):
+    """
+    POST /api/auth/login/
+    Body: {"email": "...", "password": "..."}
+
+    - email/password Check করে
+    - Valid হলে JWT (access + refresh) Return করে, role + name সহ
+      (per API Contract)
+    - Invalid credentials হলে 400 + generic error (email vs password
+      কোনটা ভুল সেটা আলাদা করে বলা হয় না, security best practice)
+    - Account থাকলেও এখনো OTP verify না হলে 403 + specific message,
+      যাতে ব্যবহারকারী বুঝতে পারে কী করতে হবে
+    """
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = LoginSerializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response(
+                "Invalid input", status_code=400, errors=serializer.errors
+            )
+
+        email = serializer.validated_data["email"].strip().lower()
+        password = serializer.validated_data["password"]
+
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            # Deliberately the same message as a wrong password below —
+            # don't leak whether the email itself exists.
+            return error_response("Invalid email or password", status_code=400)
+
+        if not user.check_password(password):
+            return error_response("Invalid email or password", status_code=400)
+
+        if not user.is_active or not user.verified:
+            return error_response(
+                "Please verify your email before logging in", status_code=403
+            )
+
+        refresh = RefreshToken.for_user(user)
+
+        return success_response(
+            data={
+                "access_token": str(refresh.access_token),
+                "refresh_token": str(refresh),
+                "role": user.role,
+                "name": user.name,
             },
             status_code=200,
         )
