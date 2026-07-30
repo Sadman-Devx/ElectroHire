@@ -26,18 +26,23 @@ function AuthProvider({ children }) {
     setSession(null)
   }, [])
 
-  const value = useMemo(() => {
-    const isAuthenticated = Boolean(session?.accessToken)
-    return {
-      // `user` is null when logged out so consumers can do a simple
-      // `if (user)` check instead of reaching into a maybe-null session.
-      user: isAuthenticated ? { role: session.role, name: session.name } : null,
-      accessToken: session?.accessToken ?? null,
-      isAuthenticated,
-      login,
-      logout,
-    }
-  }, [session, login, logout])
+  const completeOtpVerification = useCallback(({ accessToken, refreshToken, role, name = null }) => {
+  const nextSession = saveSession({ accessToken, refreshToken, role, name })
+  setSession(nextSession)
+  return nextSession
+}, [])
+
+const value = useMemo(() => {
+  const isAuthenticated = Boolean(session?.accessToken)
+  return {
+    user: isAuthenticated ? { role: session.role, name: session.name } : null,
+    accessToken: session?.accessToken ?? null,
+    isAuthenticated,
+    login,
+    logout,
+    completeOtpVerification,
+  }
+}, [session, login, logout, completeOtpVerification])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

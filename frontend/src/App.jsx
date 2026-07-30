@@ -1,9 +1,11 @@
 import { Routes, Route } from 'react-router-dom'
 
+import { ProtectedRoute } from '@/components/ProtectedRoute'
 import HomePlaceholder from '@/pages/HomePlaceholder'
 import SignupPage from '@/pages/SignupPage'
 import LoginPage from '@/pages/LoginPage'
-import VerifyOtpPlaceholder from '@/pages/VerifyOtpPlaceholder'
+import VerifyOtpPage from '@/pages/VerifyOtpPage'
+import AccountPlaceholder from '@/pages/AccountPlaceholder'
 
 function NotFound() {
   return (
@@ -19,7 +21,15 @@ function App() {
       <Route path="/" element={<HomePlaceholder />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/verify-otp" element={<VerifyOtpPlaceholder />} />
+      <Route path="/verify-otp" element={<VerifyOtpPage />} />
+      <Route
+        path="/account"
+        element={
+          <ProtectedRoute>
+            <AccountPlaceholder />
+          </ProtectedRoute>
+        }
+      />
       <Route path="*" element={<NotFound />} />
     </Routes>
   )
