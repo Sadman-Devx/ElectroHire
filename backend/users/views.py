@@ -42,9 +42,7 @@ class RegisterView(APIView):
         return success_response(message="OTP sent to your email", status_code=201)
 
 
-# ── Dev 2, Day 2 — logic unchanged from the original push, only the
-#    hand-written Response(...) dicts were swapped for the shared
-#    core.responses helpers (identical JSON output — see tests) ──────
+# ── Dev 2, Day 2 ─────────────────────────────────────────────────────
 class VerifyOTPView(APIView):
     """
     POST /api/auth/verify-otp/
@@ -106,7 +104,17 @@ class VerifyOTPView(APIView):
             status_code=200,
         )
 
+
+# ── Dev 3, Day 3 ───────────────────────────────────────────────────
 class ResendOTPView(APIView):
+    """
+    POST /api/auth/resend-otp/
+    Body: {"email": "..."}
+
+    OTP verify পেজের "Resend" বাটনের জন্য। নতুন 6-digit OTP জেনারেট করে
+    email করে দেয়।
+    """
+
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -121,6 +129,8 @@ class ResendOTPView(APIView):
         try:
             user = User.objects.get(email__iexact=email)
         except User.DoesNotExist:
+            # Same response shape whether or not the account exists —
+            # don't let this endpoint confirm/deny an email is registered.
             return success_response(message="If an account exists, a new code has been sent")
 
         if user.verified:
@@ -132,3 +142,58 @@ class ResendOTPView(APIView):
         send_otp_email(user.email, otp.otp_code)
 
         return success_response(message="A new OTP has been sent to your email")
+
+
+# ── Dev 1, Day 3 ───────────────────────────────────────────────────
+class LoginView(APIView):
+    """
+    POST /api/auth/login/
+    Body: {"email": "...", "password": "..."}
+
+    - email/password Check করে
+    - Valid হলে JWT (access + refresh) Return করে, role + name সহ
+      (per API Contract)
+    - Invalid credentials হলে 400 + generic error (email vs password
+      কোনটা ভুল সেটা আলাদা করে বলা হয় না, security best practice)
+    - Account থাকলেও এখনো OTP verify না হলে 403 + specific message,
+      যাতে ব্যবহারকারী বুঝতে পারে কী করতে হবে
+    """
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = LoginSerializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response(
+                "Invalid input", status_code=400, errors=serializer.errors
+            )
+
+        email = serializer.validated_data["email"].strip().lower()
+        password = serializer.validated_data["password"]
+
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            # Deliberately the same message as a wrong password below —
+            # don't leak whether the email itself exists.
+            return error_response("Invalid email or password", status_code=400)
+
+        if not user.check_password(password):
+            return error_response("Invalid email or password", status_code=400)
+
+        if not user.is_active or not user.verified:
+            return error_response(
+                "Please verify your email before logging in", status_code=403
+            )
+
+        refresh = RefreshToken.for_user(user)
+
+        return success_response(
+            data={
+                "access_token": str(refresh.access_token),
+                "refresh_token": str(refresh),
+                "role": user.role,
+                "name": user.name,
+            },
+            status_code=200,
+        )
