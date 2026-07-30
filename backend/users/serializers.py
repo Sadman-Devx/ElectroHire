@@ -112,3 +112,6 @@ class UserPublicSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["id", "name", "email", "phone", "role", "verified"]
+
+class ResendOTPSerializer(serializers.Serializer):
+    email = serializers.EmailField()

@@ -2,11 +2,16 @@ from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from core.responses import error_response, first_error_message, success_response
+from core.response import error_response, first_error_message, success_response
 
 from .models import OTP, User
-from .serializers import RegisterSerializer, VerifyOTPSerializer
 from .utils import send_otp_email
+from .serializers import (
+    LoginSerializer,
+    RegisterSerializer,
+    ResendOTPSerializer,
+    VerifyOTPSerializer,
+)
 
 
 # ── Dev 1, Day 2 ───────────────────────────────────────────────────
@@ -100,3 +105,30 @@ class VerifyOTPView(APIView):
             },
             status_code=200,
         )
+
+class ResendOTPView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = ResendOTPSerializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response(
+                "Invalid input", status_code=400, errors=serializer.errors
+            )
+
+        email = serializer.validated_data["email"].strip().lower()
+
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            return success_response(message="If an account exists, a new code has been sent")
+
+        if user.verified:
+            return error_response(
+                "This account is already verified. Please log in.", status_code=400
+            )
+
+        otp = OTP.create_for_email(user.email)
+        send_otp_email(user.email, otp.otp_code)
+
+        return success_response(message="A new OTP has been sent to your email")

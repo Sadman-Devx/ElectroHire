@@ -55,3 +55,21 @@ export async function login(payload) {
     },
   }
 }
+
+export async function verifyOtp(payload) {
+  try {
+    const { data } = await apiClient.post('/auth/verify-otp/', payload)
+    return data
+  } catch (error) {
+    throw toServiceError(error)
+  }
+}
+
+export async function resendOtp(payload) {
+  try {
+    const { data } = await apiClient.post('/auth/resend-otp/', payload)
+    return data
+  } catch (error) {
+    throw toServiceError(error)
+  }
+}
