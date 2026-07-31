@@ -131,3 +131,58 @@ class ProviderDetailSerializer(serializers.ModelSerializer):
     def get_member_since(self, obj):
         local_dt = timezone.localtime(obj.created_at)
         return local_dt.date().isoformat()
+
+
+# ── Dev 1, Day 4 ─────────────────────────────────────────────────────
+class ProviderListSerializer(serializers.ModelSerializer):
+    """
+    Backs GET /api/providers/ (Dev 1, Day 4) — public, no auth.
+
+    Shape matches the API Contract exactly:
+        {"id", "name", "area", "experience", "photo", "categories",
+         "avg_rating", "review_count", "status"}
+
+    avg_rating / review_count are hardcoded to 0.0 / 0 for the same
+    reason as ProviderDetailSerializer above — the Rating model doesn't
+    exist yet (Day 7, Dev 2). Once it lands, replace get_avg_rating /
+    get_review_count with a real aggregate (e.g. annotate Avg/Count on
+    the queryset in ProviderListView.get_queryset) — field names here
+    already match the contract so nothing downstream has to change.
+    """
+
+    name = serializers.CharField(source="user.name", read_only=True)
+    categories = serializers.SerializerMethodField()
+    photo = serializers.SerializerMethodField()
+    avg_rating = serializers.SerializerMethodField()
+    review_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Provider
+        fields = [
+            "id",
+            "name",
+            "area",
+            "experience",
+            "photo",
+            "categories",
+            "avg_rating",
+            "review_count",
+            "status",
+        ]
+
+    def get_categories(self, obj):
+        return list(obj.categories.values_list("name", flat=True))
+
+    def get_photo(self, obj):
+        if not obj.photo:
+            return None
+        request = self.context.get("request")
+        return request.build_absolute_uri(obj.photo.url) if request else obj.photo.url
+
+    def get_avg_rating(self, obj):
+        # TODO(Day 7): replace with a real aggregate once Rating exists.
+        return 0.0
+
+    def get_review_count(self, obj):
+        # TODO(Day 7): replace with a real count once Rating exists.
+        return 0
