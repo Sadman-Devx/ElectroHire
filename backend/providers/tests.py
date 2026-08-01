@@ -142,3 +142,81 @@ class ProviderDetailTests(APITestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.data["status"], "error")
+
+class ProviderListTests(APITestCase):
+    """GET /api/providers/ — Dev 1, Day 4."""
+
+    def setUp(self):
+        self.url = reverse("providers:list")
+
+        self.electrician = Category.objects.create(name="Electrician", icon="bulb")
+        self.plumber = Category.objects.create(name="Plumber", icon="pipe")
+
+        karim = User.objects.create_user(
+            email="karim3@example.com", password="strongpass123",
+            name="Karim Uddin", phone="01911111111", role=User.ROLE_PROVIDER,
+        )
+        self.karim_provider = Provider.objects.create(
+            user=karim, area="Dhanmondi", experience=8, status="active"
+        )
+        ProviderCategory.objects.create(provider=self.karim_provider, category=self.electrician)
+
+        rahim = User.objects.create_user(
+            email="rahim3@example.com", password="strongpass123",
+            name="Rahim Mia", phone="01922222222", role=User.ROLE_PROVIDER,
+        )
+        self.rahim_provider = Provider.objects.create(
+            user=rahim, area="Mirpur", experience=4, status="active"
+        )
+        ProviderCategory.objects.create(provider=self.rahim_provider, category=self.plumber)
+
+        pending_user = User.objects.create_user(
+            email="pending3@example.com", password="strongpass123",
+            name="Pending Guy", phone="01933333333", role=User.ROLE_PROVIDER,
+        )
+        self.pending_provider = Provider.objects.create(
+            user=pending_user, area="Dhanmondi", experience=1, status="pending"
+        )
+        ProviderCategory.objects.create(provider=self.pending_provider, category=self.electrician)
+
+    def test_returns_200_no_auth(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+
+    def test_response_shape_matches_contract(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.data["status"], "success")
+        self.assertIn("count", response.data)
+        item = response.data["data"][0]
+        self.assertEqual(
+            set(item.keys()),
+            {"id", "name", "area", "experience", "photo", "categories", "avg_rating", "review_count", "status"},
+        )
+
+    def test_only_active_providers_listed(self):
+        response = self.client.get(self.url)
+        ids = {item["id"] for item in response.data["data"]}
+        self.assertNotIn(self.pending_provider.id, ids)
+        self.assertEqual(response.data["count"], 2)
+
+    def test_filter_by_category(self):
+        response = self.client.get(self.url, {"category": self.plumber.id})
+        ids = {item["id"] for item in response.data["data"]}
+        self.assertEqual(ids, {self.rahim_provider.id})
+
+    def test_filter_by_area_case_insensitive(self):
+        response = self.client.get(self.url, {"area": "dhanmondi"})
+        ids = {item["id"] for item in response.data["data"]}
+        self.assertEqual(ids, {self.karim_provider.id})
+
+    def test_filter_by_area_no_match(self):
+        response = self.client.get(self.url, {"area": "Gulshan"})
+        self.assertEqual(response.data["data"], [])
+        self.assertEqual(response.data["count"], 0)
+
+    def test_combined_filters(self):
+        response = self.client.get(
+            self.url, {"category": self.electrician.id, "area": "Dhanmondi"}
+        )
+        ids = {item["id"] for item in response.data["data"]}
+        self.assertEqual(ids, {self.karim_provider.id})
