@@ -103,7 +103,7 @@ describe('LoginPage', () => {
 
     // Navigates to the (placeholder) home page, which now shows the
     // logged-in state driven by AuthContext.
-    expect(await screen.findByRole('heading', { name: /home page placeholder/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /find a skilled/i })).toBeInTheDocument()
     expect(screen.getByText(/mahmudul hasan/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /log out/i })).toBeInTheDocument()
 
