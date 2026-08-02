@@ -75,7 +75,12 @@ CORS_ALLOWED_ORIGINS = [
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        # Dev 2, Day 5: project-level templates/ dir so templates/admin/index.html
+        # (dashboard stats) overrides django.contrib.admin's own admin/index.html.
+        # The filesystem loader (which reads DIRS) runs before the app_directories
+        # loader, so this wins even though 'django.contrib.admin' is listed before
+        # 'core' in INSTALLED_APPS.
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
