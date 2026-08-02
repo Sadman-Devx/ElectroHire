@@ -5,6 +5,7 @@ import HomePage from '@/pages/HomePage'
 import SignupPage from '@/pages/SignupPage'
 import LoginPage from '@/pages/LoginPage'
 import VerifyOtpPage from '@/pages/VerifyOtpPage'
+import ProvidersPage from '@/pages/ProvidersPage'
 import AccountPlaceholder from '@/pages/AccountPlaceholder'
 
 function NotFound() {
@@ -22,6 +23,7 @@ function App() {
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/verify-otp" element={<VerifyOtpPage />} />
+      <Route path="/providers" element={<ProvidersPage />} />
       <Route
         path="/account"
         element={
