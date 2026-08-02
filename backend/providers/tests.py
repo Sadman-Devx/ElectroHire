@@ -143,6 +143,7 @@ class ProviderDetailTests(APITestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.data["status"], "error")
 
+
 class ProviderListTests(APITestCase):
     """GET /api/providers/ — Dev 1, Day 4."""
 
@@ -220,3 +221,63 @@ class ProviderListTests(APITestCase):
         )
         ids = {item["id"] for item in response.data["data"]}
         self.assertEqual(ids, {self.karim_provider.id})
+
+
+class ProviderAdminApproveRejectTests(APITestCase):
+    """Django Admin — Provider Approve/Reject custom actions (Dev 2, Day 5)."""
+
+    def setUp(self):
+        self.staff = User.objects.create_superuser(
+            email="admin@electrohire.com", password="adminpass123", name="Admin"
+        )
+        self.client.force_login(self.staff)
+
+        self.pending_user_1 = User.objects.create_user(
+            email="prov1@example.com", password="pass12345", name="Provider One",
+            role=User.ROLE_PROVIDER, is_active=True,
+        )
+        self.pending_user_2 = User.objects.create_user(
+            email="prov2@example.com", password="pass12345", name="Provider Two",
+            role=User.ROLE_PROVIDER, is_active=True,
+        )
+        self.provider_1 = Provider.objects.create(user=self.pending_user_1, status="pending")
+        self.provider_2 = Provider.objects.create(user=self.pending_user_2, status="pending")
+        self.changelist_url = reverse("admin:providers_provider_changelist")
+
+    def test_approve_action_sets_status_active(self):
+        response = self.client.post(self.changelist_url, {
+            "action": "approve_providers",
+            "_selected_action": [str(self.provider_1.id)],
+        }, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.provider_1.refresh_from_db()
+        self.assertEqual(self.provider_1.status, "active")
+
+    def test_reject_action_sets_status_rejected(self):
+        response = self.client.post(self.changelist_url, {
+            "action": "reject_providers",
+            "_selected_action": [str(self.provider_2.id)],
+        }, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.provider_2.refresh_from_db()
+        self.assertEqual(self.provider_2.status, "rejected")
+
+    def test_approve_action_is_bulk(self):
+        response = self.client.post(self.changelist_url, {
+            "action": "approve_providers",
+            "_selected_action": [str(self.provider_1.id), str(self.provider_2.id)],
+        }, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.provider_1.refresh_from_db()
+        self.provider_2.refresh_from_db()
+        self.assertEqual(self.provider_1.status, "active")
+        self.assertEqual(self.provider_2.status, "active")
+
+    def test_status_filter_present_on_changelist(self):
+        response = self.client.get(self.changelist_url, {"status__exact": "pending"})
+        self.assertEqual(response.status_code, 200)
+        ids = {p.id for p in response.context["cl"].queryset}
+        self.assertEqual(ids, {self.provider_1.id, self.provider_2.id})

@@ -1,0 +1,57 @@
+{% extends "admin/index.html" %}
+{% load i18n %}
+
+{% block content_title %}
+  <h1>{% translate "Dashboard" %}</h1>
+{% endblock %}
+
+{% block content %}
+  <div id="electrohire-dashboard-stats" style="margin-bottom:24px;">
+    <div style="display:flex;flex-wrap:wrap;gap:16px;">
+
+      <div style="flex:1;min-width:180px;background:#ffffff;border:1px solid #d0d0d0;border-radius:6px;padding:16px 20px;box-shadow:0 1px 3px rgba(0,0,0,0.15);">
+        <div style="font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:#5a5a5a;font-weight:600;">
+          {% translate "Total Users" %}
+        </div>
+        <div style="font-size:28px;font-weight:700;line-height:1.4;color:#1a1a1a;">
+          {{ dashboard_stats.total_users }}
+        </div>
+      </div>
+
+      <div style="flex:1;min-width:180px;background:#ffffff;border:1px solid #d0d0d0;border-radius:6px;padding:16px 20px;box-shadow:0 1px 3px rgba(0,0,0,0.15);">
+        <div style="font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:#5a5a5a;font-weight:600;">
+          {% translate "Total Providers" %}
+        </div>
+        <div style="font-size:28px;font-weight:700;line-height:1.4;color:#1a1a1a;">
+          {{ dashboard_stats.total_providers }}
+        </div>
+      </div>
+
+      <div style="flex:1;min-width:180px;background:#ffffff;border:1px solid #d0d0d0;border-radius:6px;padding:16px 20px;box-shadow:0 1px 3px rgba(0,0,0,0.15);">
+        <div style="font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:#5a5a5a;font-weight:600;">
+          {% translate "Pending Providers" %}
+        </div>
+        <div style="font-size:28px;font-weight:700;line-height:1.4;color:#c07600;">
+          {{ dashboard_stats.pending_providers }}
+        </div>
+        {% if dashboard_stats.pending_providers %}
+          <a href="{% url 'admin:providers_provider_changelist' %}?status__exact=pending" style="color:#0d6efd;font-size:13px;">
+            {% translate "Review now" %} &rarr;
+          </a>
+        {% endif %}
+      </div>
+
+      <div style="flex:1;min-width:180px;background:#ffffff;border:1px solid #d0d0d0;border-radius:6px;padding:16px 20px;box-shadow:0 1px 3px rgba(0,0,0,0.15);">
+        <div style="font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:#5a5a5a;font-weight:600;">
+          {% translate "Active Providers" %}
+        </div>
+        <div style="font-size:28px;font-weight:700;line-height:1.4;color:#0a7c3c;">
+          {{ dashboard_stats.active_providers }}
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  {{ block.super }}
+{% endblock %}
