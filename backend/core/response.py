@@ -14,12 +14,15 @@ Consistent করো" task is already satisfied by construction.
 from rest_framework.response import Response
 
 
-def success_response(message=None, data=None, status_code=200):
+def success_response(message=None, data=None, status_code=200, **extra_fields):
     payload = {"status": "success"}
     if message is not None:
         payload["message"] = message
     if data is not None:
         payload["data"] = data
+    # e.g. success_response(data=..., count=24) for GET /api/providers/,
+    # which needs a top-level "count" alongside "data" per the contract.
+    payload.update(extra_fields)
     return Response(payload, status=status_code)
 
 

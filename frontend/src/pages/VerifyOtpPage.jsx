@@ -46,7 +46,11 @@ function VerifyOtpPage() {
       const response = await verifyOtp({ email, otp })
       const { access_token: accessToken, refresh_token: refreshToken, role } = response.data
       completeOtpVerification({ accessToken, refreshToken, role })
-      navigate('/', { replace: true })
+      // Day 5, Dev 3: a freshly-verified provider account has no
+      // profile yet, so send them straight into Profile Setup instead
+      // of the generic Home page — everyone else's flow is unchanged.
+      const destination = role === 'provider' ? '/provider/profile-setup' : '/'
+      navigate(destination, { replace: true })
     } catch (error) {
       setVerifyError(error.message || 'Invalid or expired OTP')
     } finally {

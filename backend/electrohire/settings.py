@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import sys
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -74,7 +75,12 @@ CORS_ALLOWED_ORIGINS = [
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        # Dev 2, Day 5: project-level templates/ dir so templates/admin/index.html
+        # (dashboard stats) overrides django.contrib.admin's own admin/index.html.
+        # The filesystem loader (which reads DIRS) runs before the app_directories
+        # loader, so this wins even though 'django.contrib.admin' is listed before
+        # 'core' in INSTALLED_APPS.
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -117,6 +123,14 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
+
+# `manage.py test` creates many users per test (create_user hashes a real
+# password every time). PBKDF2 is intentionally slow for security, which
+# just wastes time in tests — swap to a fast hasher ONLY when the test
+# runner is active. Dev/production always keep Django's default (secure)
+# hasher since sys.argv never contains "test" outside `manage.py test`.
+if 'test' in sys.argv:
+    PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
 
 
 # Internationalization
