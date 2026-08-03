@@ -1,3 +1,5 @@
+import { toServiceError } from '@/lib/apiError'
+
 import apiClient from './apiClient'
 
 /**
@@ -29,4 +31,44 @@ export async function getProviders({ category, area, sort } = {}) {
   }
 }
 
-export default { getProviders }
+/**
+ * POST /api/providers/profile/ — Day 5, Dev 3 (frontend side of Dev
+ * 2's Day 4 endpoint).
+ *
+ * Auth required (apiClient's interceptor already attaches the JWT —
+ * see apiClient.js). Backend (providers/serializers.py
+ * ProviderProfileSetupSerializer) expects multipart/form-data because
+ * `photo` is an optional file upload:
+ *
+ *   categories[]  — repeated field, one entry per selected category id
+ *   area          — string
+ *   experience    — integer (years)
+ *   description   — string, optional
+ *   photo         — File, optional
+ *
+ * Returns the raw envelope on success:
+ *   { status: "success", message: "Profile submitted for review" }
+ *
+ * On failure, throws a normalized Error (see lib/apiError.js) whose
+ * `.errors` (when present) is the raw DRF field-error map, e.g.
+ *   { categories: ["Invalid category id(s): [9999]"] }
+ */
+export async function setupProviderProfile({ categories, area, experience, description, photo }) {
+  const formData = new FormData()
+  categories.forEach((categoryId) => formData.append('categories', categoryId))
+  formData.append('area', area)
+  formData.append('experience', experience)
+  if (description) formData.append('description', description)
+  if (photo) formData.append('photo', photo)
+
+  try {
+    const { data } = await apiClient.post('/providers/profile/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return data
+  } catch (error) {
+    throw toServiceError(error)
+  }
+}
+
+export default { getProviders, setupProviderProfile }

@@ -6,6 +6,7 @@ import SignupPage from '@/pages/SignupPage'
 import LoginPage from '@/pages/LoginPage'
 import VerifyOtpPage from '@/pages/VerifyOtpPage'
 import ProvidersPage from '@/pages/ProvidersPage'
+import ProviderProfileSetupPage from '@/pages/ProviderProfileSetupPage'
 import AccountPlaceholder from '@/pages/AccountPlaceholder'
 
 function NotFound() {
@@ -24,6 +25,14 @@ function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/verify-otp" element={<VerifyOtpPage />} />
       <Route path="/providers" element={<ProvidersPage />} />
+      <Route
+        path="/provider/profile-setup"
+        element={
+          <ProtectedRoute>
+            <ProviderProfileSetupPage />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/account"
         element={

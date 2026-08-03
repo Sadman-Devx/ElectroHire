@@ -60,3 +60,64 @@ export function validateLoginForm(values) {
 export function hasErrors(errors) {
   return Object.values(errors).some(Boolean)
 }
+
+// ── Day 5, Dev 3: Provider Profile Setup ────────────────────────────
+// Kept in sync with backend/providers/serializers.py
+// (ProviderProfileSetupSerializer) — same required fields, same
+// numeric floor, same max photo constraints — so a form that passes
+// here won't turn around and fail the real
+// POST /api/providers/profile/ call.
+
+const MAX_AREA_LENGTH = 100 // matches Provider.area = CharField(max_length=100)
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024 // 5MB client-side ceiling
+const ACCEPTED_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+
+export function validateProviderCategories(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return 'Select at least one service category'
+  }
+  return null
+}
+
+export function validateProviderArea(value) {
+  const trimmed = (value || '').trim()
+  if (!trimmed) return 'Service area is required'
+  if (trimmed.length > MAX_AREA_LENGTH) {
+    return `Service area must be ${MAX_AREA_LENGTH} characters or fewer`
+  }
+  return null
+}
+
+/**
+ * @param {string} value — raw text from the "Years of experience" input
+ */
+export function validateProviderExperience(value) {
+  const trimmed = (value || '').trim()
+  if (!trimmed) return 'Years of experience is required'
+  if (!/^\d+$/.test(trimmed)) return 'Enter a whole number of years'
+  if (Number(trimmed) < 0) return 'Experience cannot be negative'
+  return null
+}
+
+/**
+ * @param {File|null} file — null/undefined is valid (photo is optional)
+ */
+export function validateProviderPhoto(file) {
+  if (!file) return null
+  if (!ACCEPTED_PHOTO_TYPES.includes(file.type)) {
+    return 'Photo must be a JPG, PNG, or WEBP image'
+  }
+  if (file.size > MAX_PHOTO_BYTES) {
+    return 'Photo must be smaller than 5MB'
+  }
+  return null
+}
+
+export function validateProviderProfileForm(values) {
+  return {
+    categories: validateProviderCategories(values.categories),
+    area: validateProviderArea(values.area),
+    experience: validateProviderExperience(values.experience),
+    photo: validateProviderPhoto(values.photo),
+  }
+}
