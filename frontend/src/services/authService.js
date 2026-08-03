@@ -10,38 +10,15 @@
  * an Error with .message + .status on failure), so SignupPage's and
  * LoginPage's existing error handling didn't need to change — only
  * what happens inside these two functions did.
+ *
+ * Day 5, Dev 3: error normalization moved to the shared
+ * `lib/apiError.js` (providerService.js now needs the exact same
+ * logic) — behavior here is unchanged, just de-duplicated.
  */
+
+import { toServiceError } from '@/lib/apiError'
 
 import { apiClient } from './apiClient'
-
-const GENERIC_ERROR_MESSAGE = 'Something went wrong. Please try again.'
-const NETWORK_ERROR_MESSAGE = 'Network error. Please check your connection and try again.'
-
-/**
- * Normalizes an axios error into a plain Error with a user-facing
- * `.message` (taken straight from the API Contract's
- * {"status": "error", "message": "..."} shape) and a `.status` code,
- * so callers never have to know axios's error shape.
- */
-function toServiceError(axiosError) {
-  const response = axiosError.response
-
-  if (!response) {
-    // Request never reached the server (backend down, no network,
-    // CORS misconfiguration, etc).
-    const error = new Error(NETWORK_ERROR_MESSAGE)
-    error.status = null
-    error.cause = axiosError
-    return error
-  }
-
-  const message = response.data?.message || GENERIC_ERROR_MESSAGE
-  const error = new Error(message)
-  error.status = response.status
-  error.errors = response.data?.errors
-  error.cause = axiosError
-  return error
-}
 
 /**
  * @param {{name: string, email: string, phone: string, password: string, role: 'user'|'provider'}} payload
