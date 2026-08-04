@@ -32,6 +32,25 @@ export async function getProviders({ category, area, sort } = {}) {
 }
 
 /**
+ * GET /api/providers/{id}/ — public, no auth required. Day 6, Dev 1.
+ *
+ * Backend (providers/views.py ProviderDetailView) wraps a single
+ * provider in the shared envelope per the API Contract:
+ *   { status: "success", data: { id, name, area, experience,
+ *     description, photo, categories, avg_rating, review_count,
+ *     member_since } }
+ *
+ * Left un-try/catched on purpose, same as getProviders()/getCategories()
+ * above — this is a mount-time fetch, so the caller (useProviderDetail)
+ * owns loading/error state and needs the raw axios error to tell a 404
+ * ("Provider not found") apart from a network/server error.
+ */
+export async function getProviderDetail(id) {
+  const response = await apiClient.get(`/providers/${id}/`)
+  return response.data?.data ?? null
+}
+
+/**
  * POST /api/providers/profile/ — Day 5, Dev 3 (frontend side of Dev
  * 2's Day 4 endpoint).
  *
@@ -71,4 +90,4 @@ export async function setupProviderProfile({ categories, area, experience, descr
   }
 }
 
-export default { getProviders, setupProviderProfile }
+export default { getProviders, getProviderDetail, setupProviderProfile }

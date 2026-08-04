@@ -141,8 +141,8 @@ describe('SignupPage', () => {
 
     resolveRegister({ status: 'success', message: 'OTP sent to your email' })
 
-    // Then navigates to the (placeholder) verify-otp page, carrying the email
-    expect(await screen.findByRole('heading', { name: /account created/i })).toBeInTheDocument()
+    // Then navigates to the real verify-otp page (built Day 3), carrying the email
+    expect(await screen.findByRole('heading', { name: /verify your email/i })).toBeInTheDocument()
     expect(screen.getByText(/mahmudul@email\.com/i)).toBeInTheDocument()
   })
 
