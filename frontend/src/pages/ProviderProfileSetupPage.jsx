@@ -4,6 +4,7 @@ import { CheckCircle2 } from 'lucide-react'
 
 import { Footer } from '@/components/home/Footer'
 import { Navbar } from '@/components/home/Navbar'
+import { ProviderOnlyNotice } from '@/components/providers/ProviderOnlyNotice'
 import { CategoryMultiSelect } from '@/components/providers/setup/CategoryMultiSelect'
 import { PhotoDropzone } from '@/components/providers/setup/PhotoDropzone'
 import { StepProgress } from '@/components/providers/setup/StepProgress'
@@ -85,31 +86,11 @@ function ProviderProfileSetupPage() {
     if (ok) setJustSubmitted(true)
   }
 
-  if (user && user.role !== 'provider') {
-    return (
-      <div className="flex min-h-screen flex-col bg-[var(--color-bg)]">
-        <Navbar />
-        <main className="flex flex-1 items-center justify-center px-4 py-16">
-          <Card className="max-w-md p-8 text-center">
-            <h1 className="text-xl font-bold text-[var(--color-text)]">
-              This page is for service providers
-            </h1>
-            <p className="mt-2 text-sm text-[var(--color-text-muted)]">
-              You&rsquo;re signed in as a user account. Provider profile setup is only for
-              accounts that signed up to offer a service.
-            </p>
-            <Link
-              to="/"
-              className="mt-6 inline-block rounded-[var(--radius-button)] bg-[var(--color-primary)] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[var(--color-primary-hover)]"
-            >
-              Back to home
-            </Link>
-          </Card>
-        </main>
-        <Footer />
-      </div>
-    )
-  }
+    if (user && user.role !== 'provider') {
+      return (
+        <ProviderOnlyNotice description="You're signed in as a user account. Provider profile setup is only for accounts that signed up to offer a service." />
+      )
+    }
 
   if (justSubmitted) {
     return (
@@ -128,10 +109,10 @@ function ProviderProfileSetupPage() {
               come back and resubmit any time before then.
             </p>
             <Link
-              to="/account"
+              to="/provider/pending"
               className="mt-6 inline-block rounded-[var(--radius-button)] bg-[var(--color-primary)] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[var(--color-primary-hover)]"
             >
-              Go to my account
+              View application status
             </Link>
           </Card>
         </main>
