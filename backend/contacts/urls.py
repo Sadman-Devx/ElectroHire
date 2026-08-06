@@ -1,16 +1,25 @@
 from django.urls import path
 
-from .views import ContactCreateView
+from .views import ContactCreateView, ConversationListView, MessageListCreateView
 
 app_name = "contacts"
 
 urlpatterns = [
     path("", ContactCreateView.as_view(), name="contact-create"),
-    # --- Coordination note for Dev 1 (Day 7) ---
-    # Dev 1 will add the following under this same /api/contacts/ prefix:
-    #   GET  /api/contacts/messages/<int:provider_id>/   -> message list
-    #   POST /api/contacts/messages/<int:provider_id>/   -> message send
-    #   GET  /api/contacts/conversations/                -> conversation list
-    # Please avoid reusing the path name "contact-create" or the bare ""
-    # path when wiring those in, to prevent a URL name/route collision.
+    # --- Day 7, Dev 1 ---
+    # "conversations/" is registered before "messages/<provider_id>/" on
+    # purpose: Django resolves urlpatterns top-to-bottom, and a literal
+    # path always needs to be checked ahead of a variable one it could be
+    # confused with (not the case here since the segments differ, but
+    # keeping literal-before-variable is the safer default).
+    path(
+        "conversations/",
+        ConversationListView.as_view(),
+        name="conversation-list",
+    ),
+    path(
+        "messages/<int:provider_id>/",
+        MessageListCreateView.as_view(),
+        name="message-thread",
+    ),
 ]
