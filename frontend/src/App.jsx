@@ -8,6 +8,8 @@ import VerifyOtpPage from '@/pages/VerifyOtpPage'
 import ProvidersPage from '@/pages/ProvidersPage'
 import ProviderDetailPage from '@/pages/ProviderDetailPage'
 import ProviderProfileSetupPage from '@/pages/ProviderProfileSetupPage'
+import ProviderPendingPage from '@/pages/ProviderPendingPage'
+import ProviderDashboardPage from '@/pages/ProviderDashboardPage'
 import AccountPlaceholder from '@/pages/AccountPlaceholder'
 
 function NotFound() {
@@ -35,6 +37,25 @@ function App() {
           </ProtectedRoute>
         }
       />
+
+      {/* Day 6, Dev 3 */}
+      <Route
+        path="/provider/pending"
+        element={
+          <ProtectedRoute>
+            <ProviderPendingPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/provider/dashboard"
+        element={
+          <ProtectedRoute>
+            <ProviderDashboardPage />
+          </ProtectedRoute>
+        }
+      />
+
       <Route
         path="/account"
         element={
