@@ -1,3 +1,4 @@
+from django.db.models import Avg
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -82,11 +83,10 @@ class ProviderDetailSerializer(serializers.ModelSerializer):
     django.utils.timezone conversion — the same fix pattern already
     used for the equivalent member_since bug elsewhere in the project.
 
-    avg_rating / review_count default to 0 for now — the Rating model
-    doesn't exist yet (that's Day 7, Dev 2). Once it does, swap
-    get_avg_rating/get_review_count to query it; the field names in
-    this response already match the API Contract so nothing else
-    downstream (Dev 1/Dev 3) needs to change.
+    avg_rating / review_count now come from a live aggregate over the
+    Rating model (Day 7, Dev 2) instead of the earlier hardcoded 0 / 0.0
+    placeholders — field names were already contract-correct, so this is
+    the only change needed here.
     """
 
     name = serializers.CharField(source="user.name", read_only=True)
@@ -121,12 +121,11 @@ class ProviderDetailSerializer(serializers.ModelSerializer):
         return request.build_absolute_uri(obj.photo.url) if request else obj.photo.url
 
     def get_avg_rating(self, obj):
-        # TODO(Day 7): replace with a real aggregate once Rating exists.
-        return 0.0
+        avg = obj.ratings.aggregate(avg=Avg("rating_value"))["avg"]
+        return round(avg, 1) if avg is not None else 0.0
 
     def get_review_count(self, obj):
-        # TODO(Day 7): replace with a real count once Rating exists.
-        return 0
+        return obj.ratings.count()
 
     def get_member_since(self, obj):
         local_dt = timezone.localtime(obj.created_at)
@@ -142,12 +141,10 @@ class ProviderListSerializer(serializers.ModelSerializer):
         {"id", "name", "area", "experience", "photo", "categories",
          "avg_rating", "review_count", "status"}
 
-    avg_rating / review_count are hardcoded to 0.0 / 0 for the same
-    reason as ProviderDetailSerializer above — the Rating model doesn't
-    exist yet (Day 7, Dev 2). Once it lands, replace get_avg_rating /
-    get_review_count with a real aggregate (e.g. annotate Avg/Count on
-    the queryset in ProviderListView.get_queryset) — field names here
-    already match the contract so nothing downstream has to change.
+    avg_rating / review_count are annotated onto the queryset in
+    ProviderListView.get_queryset (Day 7, Dev 2) rather than recomputed
+    per-row here, so this just reads the annotated attributes straight
+    off each Provider instance — cheaper than N+1 aggregate queries.
     """
 
     name = serializers.CharField(source="user.name", read_only=True)
@@ -180,9 +177,12 @@ class ProviderListSerializer(serializers.ModelSerializer):
         return request.build_absolute_uri(obj.photo.url) if request else obj.photo.url
 
     def get_avg_rating(self, obj):
-        # TODO(Day 7): replace with a real aggregate once Rating exists.
-        return 0.0
+        # Populated via .annotate(_avg_rating=Avg(...)) in
+        # ProviderListView.get_queryset; falls back to 0.0 for any
+        # provider with no ratings (Avg() returns None there, and for
+        # safety if this serializer is ever used without the annotation).
+        avg = getattr(obj, "_avg_rating", None)
+        return round(avg, 1) if avg is not None else 0.0
 
     def get_review_count(self, obj):
-        # TODO(Day 7): replace with a real count once Rating exists.
-        return 0
+        return getattr(obj, "_review_count", 0) or 0

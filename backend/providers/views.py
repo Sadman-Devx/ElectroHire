@@ -1,3 +1,4 @@
+from django.db.models import Avg, Count
 from rest_framework.generics import ListAPIView
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -96,6 +97,15 @@ class ProviderListView(ListAPIView):
             Provider.objects.filter(status="active")
             .select_related("user")
             .prefetch_related("categories")
+            # Day 7, Dev 2: real Avg/Count annotation, consumed by
+            # ProviderListSerializer.get_avg_rating/get_review_count via
+            # the `_avg_rating`/`_review_count` attribute names below
+            # (avoids colliding with the serializer's own output field
+            # names "avg_rating"/"review_count").
+            .annotate(
+                _avg_rating=Avg("ratings__rating_value"),
+                _review_count=Count("ratings", distinct=True),
+            )
         )
 
         category_id = self.request.query_params.get("category")
@@ -106,11 +116,11 @@ class ProviderListView(ListAPIView):
         if area:
             qs = qs.filter(area__icontains=area.strip())
 
-        # NOTE: real rating-based sort will need `.annotate(avg_rating=
-        # Avg("ratings__rating_value"))` once the Rating model exists
-        # (Day 7). For now "rating" sort falls back to newest-first
-        # since every provider ties at avg_rating=0.
-        qs = qs.order_by("-created_at")
+        sort = self.request.query_params.get("sort")
+        if sort == "rating":
+            qs = qs.order_by("-_avg_rating", "-created_at")
+        else:
+            qs = qs.order_by("-created_at")
 
         return qs.distinct()
 
