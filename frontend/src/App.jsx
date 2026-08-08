@@ -11,6 +11,7 @@ import ProviderProfileSetupPage from '@/pages/ProviderProfileSetupPage'
 import ProviderPendingPage from '@/pages/ProviderPendingPage'
 import ProviderDashboardPage from '@/pages/ProviderDashboardPage'
 import AccountPlaceholder from '@/pages/AccountPlaceholder'
+import ChatsPage from '@/pages/ChatsPage'
 
 function NotFound() {
   return (
@@ -52,6 +53,16 @@ function App() {
         element={
           <ProtectedRoute>
             <ProviderDashboardPage />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Day 7, Dev 3 */}
+      <Route
+        path="/chats"
+        element={
+          <ProtectedRoute>
+            <ChatsPage />
           </ProtectedRoute>
         }
       />
