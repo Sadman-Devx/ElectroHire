@@ -389,3 +389,48 @@ class ConversationListViewTests(APITestCase):
         self._auth()
         response = self.client.get(self.url)
         self.assertEqual(response.data["data"], [])
+
+    def test_provider_perspective_includes_own_provider_id(self):
+        """
+        Regression test — Day 8, Dev 1 pre-build audit fix.
+
+        Before the fix, `provider_id` was resolved only from the *other*
+        party's provider_profile. From a customer's view that's fine (the
+        other party IS the provider), but from the provider's own view of
+        their own conversation, the other party is a plain customer with
+        no provider_profile — so provider_id came back None, and the
+        frontend had no way to build
+        GET/POST /api/contacts/messages/{provider_id}/ to reply.
+        """
+        Message.objects.create(sender=self.user, receiver=self.karim_user, content="hi")
+        Message.objects.create(sender=self.karim_user, receiver=self.user, content="hello back")
+
+        self.client.force_authenticate(user=self.karim_user)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.data["count"], 1)
+        convo = response.data["data"][0]
+        self.assertEqual(convo["provider_id"], self.karim.id)
+        self.assertEqual(convo["other_user_id"], self.user.id)
+        self.assertEqual(convo["other_user_name"], "Mahmudul")
+        self.assertEqual(convo["other_user_role"], "user")
+
+    def test_provider_perspective_across_multiple_customers(self):
+        """Same fix, checked across more than one customer thread at once —
+        every entry should resolve to Karim's own provider_id, not None."""
+        rahim_customer = User.objects.create_user(
+            email="rahim.customer@example.com",
+            name="Rahim Customer",
+            phone="01744444444",
+            password="strongpassword123",
+            role="user",
+        )
+        Message.objects.create(sender=self.user, receiver=self.karim_user, content="hi")
+        Message.objects.create(sender=rahim_customer, receiver=self.karim_user, content="hi too")
+
+        self.client.force_authenticate(user=self.karim_user)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.data["count"], 2)
+        provider_ids = {convo["provider_id"] for convo in response.data["data"]}
+        self.assertEqual(provider_ids, {self.karim.id})

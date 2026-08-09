@@ -43,6 +43,8 @@ function ThreadSkeleton() {
   )
 }
 
+const NEAR_BOTTOM_THRESHOLD_PX = 150
+
 /**
  * Day 7 spec: "Right Panel: Chat Window" message area. `isMine` for
  * each bubble is derived here from `otherUserId` — see
@@ -50,11 +52,52 @@ function ThreadSkeleton() {
  * instead of needing to know the signed-in user's own id.
  */
 function MessageThread({ messages, otherUserId, isLoading, error }) {
+  const containerRef = useRef(null)
   const bottomRef = useRef(null)
+  const previousMessageCountRef = useRef(0)
+  // Tracks scroll position from the reader's own last scroll action,
+  // not from post-update layout — see the effect below for why that
+  // distinction matters once auto-refresh polling is in play.
+  const wasNearBottomRef = useRef(true)
+
+  function handleScroll() {
+    const container = containerRef.current
+    if (!container) return
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+    wasNearBottomRef.current = distanceFromBottom < NEAR_BOTTOM_THRESHOLD_PX
+  }
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView?.({ block: 'end' })
-  }, [messages])
+    const previousCount = previousMessageCountRef.current
+    const isFirstRender = previousCount === 0
+    const hasNewMessages = messages.length > previousCount
+    previousMessageCountRef.current = messages.length
+
+    if (!hasNewMessages) return
+
+    // Day 8, Dev 1: "New Message আসলে Auto-Scroll করবে নিচে" — but
+    // useChatThread.js now polls every 5s, so blindly scrolling on
+    // every `messages` change would yank someone back to the bottom
+    // while they're scrolled up reading history. Only jump down
+    // automatically when: this is the thread's first render (nothing
+    // to scroll away from yet), the reader was already near the
+    // bottom, or the newest message is one they just sent themselves
+    // (actively in the conversation, not reading back).
+    //
+    // wasNearBottomRef is read here rather than measuring
+    // container.scrollHeight fresh: by the time this effect runs, the
+    // DOM has already grown to include the new message(s), so a fresh
+    // measurement would answer "is it near the bottom now" (always
+    // true-ish right after growth) instead of "was the reader near
+    // the bottom a moment ago" (the thing that actually matters).
+    const newestMessage = messages[messages.length - 1]
+    const newestIsMine = newestMessage && newestMessage.sender_id !== otherUserId
+
+    if (isFirstRender || wasNearBottomRef.current || newestIsMine) {
+      bottomRef.current?.scrollIntoView?.({ block: 'end' })
+      wasNearBottomRef.current = true
+    }
+  }, [messages, otherUserId])
 
   if (isLoading) {
     return (
@@ -87,7 +130,12 @@ function MessageThread({ messages, otherUserId, isLoading, error }) {
   const groups = groupMessagesByDay(messages)
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      data-testid="message-thread-scroll-container"
+      className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+    >
       <div className="flex flex-col gap-4">
         {groups.map((group) => (
           <div key={group.key} className="flex flex-col gap-2">

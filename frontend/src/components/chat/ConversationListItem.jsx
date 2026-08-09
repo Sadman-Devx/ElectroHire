@@ -5,10 +5,13 @@ import { cn } from '@/lib/utils'
 
 /**
  * Day 7 spec: conversation list row with "Unread Badge + Online
- * Indicator". The online dot reflects `conversation.is_online`, a
- * mock-only decorative field (see chatMockService.js) — there is no
- * real presence data yet, so this is a placeholder for the visual,
- * not a live status.
+ * Indicator". The online dot reflects `conversation.is_online`, which
+ * was a mock-only decorative field on the Day 7 placeholder data —
+ * the real ConversationSerializer (contacts/serializers.py) has no
+ * presence field, so `conversation.is_online` is simply `undefined`
+ * against the real API and the dot never renders. Documented as a
+ * known gap rather than "fixed": there's no presence/online-tracking
+ * system anywhere in the API Contract to wire this up to.
  */
 function ConversationListItem({ conversation, isActive, onSelect }) {
   const hasUnread = conversation.unread_count > 0

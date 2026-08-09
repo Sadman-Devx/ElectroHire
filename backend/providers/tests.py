@@ -143,6 +143,17 @@ class ProviderDetailTests(APITestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.data["status"], "error")
 
+    def test_includes_user_id_for_chat_entry_point(self):
+        """
+        Regression test — added alongside the "Send Message" fix in
+        StickyContactCard.jsx (frontend). user_id isn't in the API
+        Contract PDF for this endpoint; see ProviderDetailSerializer's
+        docstring for why it's needed anyway.
+        """
+        url = reverse("providers:detail", kwargs={"pk": self.provider.id})
+        response = self.client.get(url)
+        self.assertEqual(response.data["data"]["user_id"], self.user.id)
+
 
 class ProviderListTests(APITestCase):
     """GET /api/providers/ — Dev 1, Day 4."""
