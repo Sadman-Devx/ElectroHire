@@ -9,7 +9,7 @@ import { useChatThread } from '@/hooks/useChatThread'
 import { useConversations } from '@/hooks/useConversations'
 
 /**
- * Day 7 — Dev 3: Chat Page (Web Version).
+ * Day 7, Dev 3 (UI) + Day 8, Dev 1 (real data): Chat Page (Web Version).
  *   → Left Panel: Conversation List
  *   → Search Box + Unread Badge + Online Indicator
  *   → Right Panel: Chat Window
@@ -17,20 +17,33 @@ import { useConversations } from '@/hooks/useConversations'
  *   → Message Input + Send Button
  *   → 'Rate this provider' Prompt (Chat-এ Banner)
  *   → Report Button (Chat Header-এ ৩-dot Menu)
- * Output: Chat Page UI Ready.
+ *   → Auto-Refresh (5s poll, both panels — see useConversations/useChatThread)
+ *   → Auto-Scroll to newest message (see MessageThread.jsx)
+ * Output: Chat API Fully Connected.
  *
  * Route: /chats (protected — see App.jsx). Already forward-linked
  * from two places built on Day 6: DashboardNavbar's "Chats" nav item
  * and RecentMessagesPreview's "View all" link.
  *
- * DATA: backed by services/chatMockService.js today, not the real
- * Chat API — Dev 1's Day 7 task built that API, but wiring the
- * frontend to it is explicitly Day 8, Dev 1's task ("Chat API সব
- * React-এ Connect করো ... Auto-Refresh ... Auto-Scroll"). Every hook
- * and component below is already shaped around the real API's exact
- * response fields, so that wiring is a service-layer swap, not a
- * rewrite — see chatMockService.js's header comment for the hand-off
- * plan.
+ * DATA: backed by services/chatService.js — the real
+ * GET /api/contacts/conversations/ and GET/POST
+ * /api/contacts/messages/{provider_id}/ endpoints Dev 1 built Day 7.
+ * useConversations() and useChatThread() both poll every 5s.
+ *
+ * useChatThread() takes the whole `selectedConversation` (not just
+ * its id) plus `user?.role`, because the real endpoint needs
+ * `provider_id` (only available once the conversation list resolves
+ * it) and a provider replying needs `?with=<customer_user_id>` too —
+ * see useChatThread.js's header comment for why that's a deliberate
+ * deviation from the Day 7 hand-off note's "hooks won't need to
+ * change" expectation.
+ *
+ * ChatWindow is keyed by `selectedOtherUserId` so switching threads
+ * remounts it — MessageComposer's draft text and RateProviderBanner's
+ * dismissed flag reset per conversation instead of leaking into the
+ * next one. (The component's own doc comment already assumed this
+ * key existed; it didn't — added here as part of the Day 8 pre-build
+ * audit, same category as the other pre-existing-bug fixes.)
  *
  * The open conversation lives in the URL (`?with=<other_user_id>`)
  * rather than local state, so refreshing the page or sharing/bookmarking
@@ -64,6 +77,9 @@ function ChatsPage() {
     applySentMessage,
   } = useConversations()
 
+  const selectedConversation =
+    conversations.find((conversation) => conversation.other_user_id === selectedOtherUserId) ?? null
+
   const {
     messages,
     isLoading: isThreadLoading,
@@ -71,13 +87,10 @@ function ChatsPage() {
     send,
     isSending,
     sendError,
-  } = useChatThread(selectedOtherUserId, {
+  } = useChatThread(selectedConversation, user?.role, {
     onThreadOpened: markThreadRead,
     onMessageSent: applySentMessage,
   })
-
-  const selectedConversation =
-    conversations.find((conversation) => conversation.other_user_id === selectedOtherUserId) ?? null
 
   function handleSelect(otherUserId) {
     setSearchParams(otherUserId ? { with: String(otherUserId) } : {})
@@ -110,6 +123,7 @@ function ChatsPage() {
           />
 
           <ChatWindow
+            key={selectedOtherUserId ?? 'none'}
             conversation={selectedConversation}
             messages={messages}
             isThreadLoading={isThreadLoading}

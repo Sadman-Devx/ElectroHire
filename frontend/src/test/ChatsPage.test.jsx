@@ -1,24 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 
 import App from '@/App'
 import { AuthProvider } from '@/context/AuthContext'
 import { saveSession } from '@/services/tokenStorage'
-import { getMessageThread, listConversations, sendMessage } from '@/services/chatMockService'
+import { getMessageThread, listConversations, sendMessage } from '@/services/chatService'
 
-// chatMockService stands in for the real Chat API until Day 8, Dev 1
-// wires it up (see the file's header comment) — mocked here the same
-// way ProviderDetailPage.test.jsx mocks providerService/contactService,
+// Day 8, Dev 1: chatService replaces the Day 7 mock — mocked here the
+// same way ProviderDetailPage.test.jsx mocks providerService/contactService,
 // so each test fully controls the "backend" instead of depending on
-// the seeded demo dataset (or its 350ms simulated latency).
-vi.mock('@/services/chatMockService', () => ({
+// the seeded demo dataset (or real network latency).
+vi.mock('@/services/chatService', () => ({
   listConversations: vi.fn(),
   getMessageThread: vi.fn(),
   sendMessage: vi.fn(),
 }))
 
+// Fixture shapes intentionally match the real API exactly (no
+// mock-only extras like the old `is_online` field — see
+// ConversationListItem.jsx's doc comment on why that field is always
+// absent against the real ConversationSerializer).
 const CONVERSATIONS = [
   {
     provider_id: 1,
@@ -28,7 +31,6 @@ const CONVERSATIONS = [
     last_message: 'Kal shokal e ashbo.',
     last_message_at: '2025-01-15T10:35:00.000Z',
     unread_count: 0,
-    is_online: true,
   },
   {
     provider_id: 2,
@@ -38,7 +40,22 @@ const CONVERSATIONS = [
     last_message: 'Koto taka lagbe bolun.',
     last_message_at: '2025-01-14T09:00:00.000Z',
     unread_count: 2,
-    is_online: false,
+  },
+]
+
+// A provider's own view of a conversation with one of their
+// customers: provider_id resolves to *their own* provider id (Day 8
+// backend fix — see contacts/views.py ConversationListView and its
+// regression tests), other_user_role is 'user'.
+const PROVIDER_VIEW_CONVERSATIONS = [
+  {
+    provider_id: 7,
+    other_user_id: 42,
+    other_user_name: 'Mahmudul Hasan',
+    other_user_role: 'user',
+    last_message: 'AC thanda hocche na',
+    last_message_at: '2025-01-15T10:32:00.000Z',
+    unread_count: 1,
   },
 ]
 
@@ -75,16 +92,25 @@ function loginAsUser() {
   saveSession({ accessToken: 'token-abc', refreshToken: 'refresh-abc', role: 'user', name: 'Mahmudul' })
 }
 
+function loginAsProvider() {
+  saveSession({ accessToken: 'token-xyz', refreshToken: 'refresh-xyz', role: 'provider', name: 'Karim' })
+}
+
 beforeEach(() => {
   localStorage.clear()
   listConversations.mockReset()
   getMessageThread.mockReset()
   sendMessage.mockReset()
+  // jsdom has no real layout engine, so Element.prototype.scrollIntoView
+  // doesn't exist — stub it so MessageThread's auto-scroll can be
+  // asserted on, same idea as mocking window.matchMedia in other suites.
+  Element.prototype.scrollIntoView = vi.fn()
 })
 
 afterEach(() => {
   localStorage.clear()
   vi.clearAllMocks()
+  vi.useRealTimers()
 })
 
 describe('ChatsPage', () => {
@@ -115,7 +141,7 @@ describe('ChatsPage', () => {
     expect(await screen.findByText('No conversations yet')).toBeInTheDocument()
   })
 
-  it('opens a conversation and loads its message thread', async () => {
+  it('opens a conversation and loads its message thread by provider_id', async () => {
     loginAsUser()
     listConversations.mockResolvedValue(CONVERSATIONS)
     getMessageThread.mockResolvedValue(KARIM_THREAD)
@@ -126,7 +152,9 @@ describe('ChatsPage', () => {
 
     expect(await screen.findByText('Ki kaj lagbe?')).toBeInTheDocument()
     expect(screen.getByText('AC thanda hocche na')).toBeInTheDocument()
-    expect(getMessageThread).toHaveBeenCalledWith(1)
+    // A plain customer never sends '?with=' — providerId alone
+    // identifies the thread from their side (see chatService.js).
+    expect(getMessageThread).toHaveBeenCalledWith({ providerId: 1, withUserId: undefined })
   })
 
   it('filters the conversation list by search query', async () => {
@@ -164,11 +192,41 @@ describe('ChatsPage', () => {
     await user.type(input, 'Thank you!')
     await user.click(screen.getByRole('button', { name: /^send$/i }))
 
-    expect(sendMessage).toHaveBeenCalledWith({ otherUserId: 1, content: 'Thank you!' })
+    expect(sendMessage).toHaveBeenCalledWith({ providerId: 1, withUserId: undefined, content: 'Thank you!' })
     // Shows up twice once sent: the bubble in the thread, and the
     // conversation list's updated last-message preview.
     expect(await screen.findAllByText('Thank you!')).toHaveLength(2)
     expect(input).toHaveValue('')
+  })
+
+  it("resolves provider_id from the conversation and adds '?with=' when a provider replies", async () => {
+    loginAsProvider()
+    listConversations.mockResolvedValue(PROVIDER_VIEW_CONVERSATIONS)
+    getMessageThread.mockResolvedValue([
+      {
+        id: 10,
+        sender_id: 42,
+        sender_name: 'Mahmudul Hasan',
+        content: 'Bari te ashben ki?',
+        created_at: '2025-01-15T10:32:00.000Z',
+        is_read: false,
+      },
+    ])
+    sendMessage.mockResolvedValue({ id: 11, content: 'Kal ashbo', created_at: '2025-01-15T10:41:00.000Z' })
+    const user = userEvent.setup()
+
+    renderChats()
+    await user.click(await screen.findByRole('button', { name: /mahmudul hasan/i }))
+    await screen.findByText('Bari te ashben ki?')
+
+    // provider_id 7 is Karim's own id (Day 8 backend fix); withUserId
+    // 42 is the customer's id, required for the provider to reply.
+    expect(getMessageThread).toHaveBeenCalledWith({ providerId: 7, withUserId: 42 })
+
+    await user.type(screen.getByPlaceholderText(/type a message/i), 'Kal ashbo')
+    await user.click(screen.getByRole('button', { name: /^send$/i }))
+
+    expect(sendMessage).toHaveBeenCalledWith({ providerId: 7, withUserId: 42, content: 'Kal ashbo' })
   })
 
   it('shows the "Rate this provider" banner for a provider conversation, dismissibly', async () => {
@@ -211,6 +269,127 @@ describe('ChatsPage', () => {
     renderChats('/chats?with=1')
 
     expect(await screen.findByText('Ki kaj lagbe?')).toBeInTheDocument()
-    expect(getMessageThread).toHaveBeenCalledWith(1)
+    expect(getMessageThread).toHaveBeenCalledWith({ providerId: 1, withUserId: undefined })
+  })
+
+  it('resets the composer draft and dismissed banner when switching threads', async () => {
+    loginAsUser()
+    listConversations.mockResolvedValue(CONVERSATIONS)
+    getMessageThread.mockResolvedValue(KARIM_THREAD)
+    const user = userEvent.setup()
+
+    renderChats()
+    await user.click(await screen.findByRole('button', { name: /karim uddin/i }))
+    await screen.findByText(/rate karim uddin/i)
+
+    await user.type(screen.getByPlaceholderText(/type a message/i), 'draft I forgot to send')
+    await user.click(screen.getByRole('button', { name: /dismiss/i }))
+    expect(screen.queryByText(/rate karim uddin/i)).not.toBeInTheDocument()
+
+    // Switching to Rahim's thread should remount the window (see the
+    // `key` on <ChatWindow> in ChatsPage.jsx — a pre-existing Day 7
+    // gap between that component's doc comment and reality, fixed as
+    // part of the Day 8 pre-build audit): the draft shouldn't follow,
+    // and Rahim's own rate banner shouldn't come back pre-dismissed.
+    await user.click(screen.getByRole('button', { name: /rahim mia/i }))
+    await screen.findByText(/rate rahim mia/i)
+
+    expect(screen.getByPlaceholderText(/type a message/i)).toHaveValue('')
+  })
+
+  it('polls both the conversation list and the open thread every 5 seconds', async () => {
+    loginAsUser()
+    listConversations.mockResolvedValue(CONVERSATIONS)
+    getMessageThread.mockResolvedValue(KARIM_THREAD)
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    renderChats('/chats?with=1')
+
+    await screen.findByText('Ki kaj lagbe?')
+    expect(listConversations).toHaveBeenCalledTimes(1)
+    expect(getMessageThread).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+
+    expect(listConversations).toHaveBeenCalledTimes(2)
+    expect(getMessageThread).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+
+    expect(listConversations).toHaveBeenCalledTimes(3)
+    expect(getMessageThread).toHaveBeenCalledTimes(3)
+  })
+
+  it('auto-scrolls to newest on first load, but a background poll does not yank a reader away from scrolled-up history', async () => {
+    loginAsUser()
+    listConversations.mockResolvedValue(CONVERSATIONS)
+    getMessageThread.mockResolvedValue(KARIM_THREAD)
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    renderChats('/chats?with=1')
+    await screen.findByText('Ki kaj lagbe?')
+
+    // First load always scrolls (nothing to scroll away from yet).
+    // vi.waitFor (not a bare assertion) because the scrollIntoView
+    // call happens inside a passive effect, which can flush in a
+    // later task than the DOM mutation findByText already resolved on.
+    await vi.waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1))
+
+    const container = screen.getByTestId('message-thread-scroll-container')
+    Object.defineProperty(container, 'scrollHeight', { value: 1000, configurable: true })
+    Object.defineProperty(container, 'clientHeight', { value: 400, configurable: true })
+    Object.defineProperty(container, 'scrollTop', { value: 0, writable: true, configurable: true })
+    container.dispatchEvent(new Event('scroll'))
+
+    const longerThread = [
+      ...KARIM_THREAD,
+      {
+        id: 3,
+        sender_id: 1,
+        sender_name: 'Karim Uddin',
+        content: 'Naki asben na?',
+        created_at: '2025-01-15T10:45:00.000Z',
+        is_read: false,
+      },
+    ]
+    getMessageThread.mockResolvedValue(longerThread)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+    await screen.findByText('Naki asben na?')
+
+    // Scrolled up reading history (distance from bottom = 600px, well
+    // past the 150px "near bottom" threshold) — the silent poll's new
+    // message must not have jumped the view down.
+    await vi.waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1))
+
+    // Now the reader is near the bottom — the *next* new message
+    // should auto-scroll again.
+    Object.defineProperty(container, 'scrollTop', { value: 620, writable: true, configurable: true })
+    container.dispatchEvent(new Event('scroll'))
+
+    getMessageThread.mockResolvedValue([
+      ...longerThread,
+      {
+        id: 4,
+        sender_id: 1,
+        sender_name: 'Karim Uddin',
+        content: 'Ok, kal dekha hobe.',
+        created_at: '2025-01-15T10:46:00.000Z',
+        is_read: false,
+      },
+    ])
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+    await screen.findByText('Ok, kal dekha hobe.')
+
+    await vi.waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(2))
   })
 })

@@ -10,8 +10,9 @@ import { cn } from '@/lib/utils'
  * derives it by comparing `message.sender_id !== otherUserId`, which
  * works identically against the real API's MessageListItemSerializer
  * shape (id, sender_id, sender_name, content, created_at, is_read),
- * with no dependency on knowing "my own" user id (see
- * services/chatMockService.js's header comment for why that matters).
+ * with no dependency on knowing "my own" user id — useful since
+ * AuthContext only stores { role, name } today (see
+ * services/tokenStorage.js), not a user id.
  */
 function MessageBubble({ message, isMine }) {
   return (

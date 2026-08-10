@@ -216,7 +216,25 @@ class ConversationListView(APIView):
                     sender=other_user, receiver=user, is_read=False
                 ).count()
 
-                provider = getattr(other_user, "provider_profile", None)
+                # `provider_id` must resolve to whichever party in this
+                # thread actually has a Provider profile, not just "the
+                # other party". A customer's-eye view already worked (the
+                # other party IS the provider), but a *provider's own*
+                # conversation list was silently returning provider_id:
+                # None for every thread — `other_user` there is the
+                # customer, who never has a provider_profile, so the
+                # provider's own profile (found via `user`, i.e.
+                # request.user) was never considered. That broke the
+                # frontend's ability to build
+                # /api/contacts/messages/{provider_id}/ from the
+                # provider's side of any conversation, even though this
+                # view's own serializer docstring documents provider_id as
+                # "always present". Found during the Day 8, Dev 1
+                # pre-build audit — same category of pre-existing bug as
+                # the Day 6 INSTALLED_APPS/migration fixes.
+                provider = getattr(other_user, "provider_profile", None) or getattr(
+                    user, "provider_profile", None
+                )
 
                 conversations.append(
                     {

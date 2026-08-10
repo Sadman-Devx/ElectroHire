@@ -8,12 +8,13 @@ import { AuthProvider } from '@/context/AuthContext'
 import { saveSession } from '@/services/tokenStorage'
 import { getProviderDetail } from '@/services/providerService'
 import { createContact } from '@/services/contactService'
+import { sendMessage } from '@/services/chatService'
 
 // Both services make real axios/HTTP calls in production; mocking
 // them lets us drive ProviderDetailPage -> useProviderDetail /
-// useContactProvider -> service layer end-to-end while fully
-// controlling the "backend" — same approach ProvidersPage.test.jsx
-// already uses for getProviders/getCategories.
+// useContactProvider / useSendFirstMessage -> service layer
+// end-to-end while fully controlling the "backend" — same approach
+// ProvidersPage.test.jsx already uses for getProviders/getCategories.
 vi.mock('@/services/providerService', () => ({
   getProviderDetail: vi.fn(),
 }))
@@ -22,8 +23,16 @@ vi.mock('@/services/contactService', () => ({
   createContact: vi.fn(),
 }))
 
+// "Send Message" now sends a real first message via chatService (see
+// StickyContactCard.jsx's doc comment for why) instead of only
+// logging a contact — mocked the same way ChatsPage.test.jsx mocks it.
+vi.mock('@/services/chatService', () => ({
+  sendMessage: vi.fn(),
+}))
+
 const PROVIDER = {
   id: 1,
+  user_id: 10,
   name: 'Karim Uddin',
   area: 'Dhanmondi',
   experience: 8,
@@ -38,6 +47,7 @@ const PROVIDER = {
 const NEW_PROVIDER = {
   ...PROVIDER,
   id: 2,
+  user_id: 20,
   name: 'Rahim Mia',
   avg_rating: 0,
   review_count: 0,
@@ -62,6 +72,7 @@ beforeEach(() => {
   localStorage.clear()
   getProviderDetail.mockReset()
   createContact.mockReset()
+  sendMessage.mockReset()
 })
 
 afterEach(() => {
@@ -167,22 +178,29 @@ describe('ProviderDetailPage', () => {
     await user.click(screen.getByRole('button', { name: /send message/i }))
 
     expect(await screen.findByRole('heading', { name: /welcome back/i })).toBeInTheDocument()
-    expect(createContact).not.toHaveBeenCalled()
+    expect(sendMessage).not.toHaveBeenCalled()
   })
 
-  it('logs a contact and shows a success message when a logged-in user sends a message', async () => {
+  it('sends a real first message and links straight into the conversation', async () => {
     loginAsUser()
     getProviderDetail.mockResolvedValue(PROVIDER)
-    createContact.mockResolvedValue({ contact_id: 15, provider_name: 'Karim Uddin' })
+    sendMessage.mockResolvedValue({ id: 1, content: 'Ki obosthay AC ta?', created_at: '2025-01-15T10:00:00.000Z' })
     const user = userEvent.setup()
 
     renderDetail()
     await screen.findByRole('heading', { name: 'Karim Uddin' })
 
     await user.click(screen.getByRole('button', { name: /send message/i }))
+    await user.type(
+      screen.getByPlaceholderText(/say hello to karim uddin/i),
+      'Ki obosthay AC ta?'
+    )
+    await user.click(screen.getByRole('button', { name: /^send$/i }))
 
-    expect(await screen.findByText(/your message request has been sent/i)).toBeInTheDocument()
-    expect(createContact).toHaveBeenCalledWith({ providerId: 1 })
+    expect(sendMessage).toHaveBeenCalledWith({ providerId: 1, content: 'Ki obosthay AC ta?' })
+    expect(await screen.findByText(/your message has been sent to karim uddin/i)).toBeInTheDocument()
+    const conversationLink = screen.getByRole('link', { name: /open the conversation/i })
+    expect(conversationLink).toHaveAttribute('href', '/chats?with=10')
   })
 
   it('logs a contact and explains the number is not available yet on "Show Number"', async () => {
@@ -202,22 +220,22 @@ describe('ProviderDetailPage', () => {
     expect(createContact).toHaveBeenCalledWith({ providerId: 1 })
   })
 
-  it('shows a friendly message instead of crashing when the Contact API is not live yet (404)', async () => {
+  it('shows a friendly message instead of crashing when messaging is not live yet (404)', async () => {
     loginAsUser()
     getProviderDetail.mockResolvedValue(PROVIDER)
     const error = new Error('Something went wrong. Please try again.')
     error.status = 404
-    createContact.mockRejectedValue(error)
+    sendMessage.mockRejectedValue(error)
     const user = userEvent.setup()
 
     renderDetail()
     await screen.findByRole('heading', { name: 'Karim Uddin' })
 
     await user.click(screen.getByRole('button', { name: /send message/i }))
+    await user.type(screen.getByPlaceholderText(/say hello to karim uddin/i), 'Hi there')
+    await user.click(screen.getByRole('button', { name: /^send$/i }))
 
-    expect(
-      await screen.findByText(/contacting providers isn't available yet/i)
-    ).toBeInTheDocument()
+    expect(await screen.findByText(/messaging isn't available yet/i)).toBeInTheDocument()
   })
 
   it('shows a placeholder acknowledgement when Report this provider is clicked', async () => {
@@ -242,14 +260,14 @@ describe('ProviderDetailPage', () => {
     expect(providersLinks[0]).toHaveAttribute('href', '/providers')
   })
 
-  it('disables both contact buttons while a request is in flight', async () => {
+  it('disables Cancel and Send while the first message is in flight', async () => {
     loginAsUser()
     getProviderDetail.mockResolvedValue(PROVIDER)
-    let resolveContact
-    createContact.mockImplementation(
+    let resolveSend
+    sendMessage.mockImplementation(
       () =>
         new Promise((resolve) => {
-          resolveContact = resolve
+          resolveSend = resolve
         })
     )
     const user = userEvent.setup()
@@ -258,13 +276,32 @@ describe('ProviderDetailPage', () => {
     await screen.findByRole('heading', { name: 'Karim Uddin' })
 
     await user.click(screen.getByRole('button', { name: /send message/i }))
+    await user.type(screen.getByPlaceholderText(/say hello to karim uddin/i), 'Hi there')
+    await user.click(screen.getByRole('button', { name: /^send$/i }))
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /sending/i })).toBeDisabled()
     })
-    expect(screen.getByRole('button', { name: /show number/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled()
 
-    resolveContact({ contact_id: 15, provider_name: 'Karim Uddin' })
-    expect(await screen.findByText(/your message request has been sent/i)).toBeInTheDocument()
+    resolveSend({ id: 1, content: 'Hi there', created_at: '2025-01-15T10:00:00.000Z' })
+    expect(await screen.findByText(/your message has been sent to karim uddin/i)).toBeInTheDocument()
+  })
+
+  it('shows the contact options again without a conversation link when user_id is unavailable', async () => {
+    loginAsUser()
+    getProviderDetail.mockResolvedValue({ ...PROVIDER, user_id: undefined })
+    sendMessage.mockResolvedValue({ id: 1, content: 'Hi there', created_at: '2025-01-15T10:00:00.000Z' })
+    const user = userEvent.setup()
+
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Karim Uddin' })
+
+    await user.click(screen.getByRole('button', { name: /send message/i }))
+    await user.type(screen.getByPlaceholderText(/say hello to karim uddin/i), 'Hi there')
+    await user.click(screen.getByRole('button', { name: /^send$/i }))
+
+    expect(await screen.findByText(/your message has been sent to karim uddin/i)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /open the conversation/i })).not.toBeInTheDocument()
   })
 })

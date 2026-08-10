@@ -87,9 +87,20 @@ class ProviderDetailSerializer(serializers.ModelSerializer):
     Rating model (Day 7, Dev 2) instead of the earlier hardcoded 0 / 0.0
     placeholders — field names were already contract-correct, so this is
     the only change needed here.
+
+    user_id is an addition beyond the API Contract PDF (which only
+    lists id/name/area/experience/description/photo/categories/
+    avg_rating/review_count/member_since for this endpoint). Added so
+    the frontend can link "message sent" straight into
+    /chats?with=<user_id> — the Chat API is keyed by provider_id for
+    sending (see contacts/urls.py), but the conversation list and
+    ChatsPage route are keyed by the *other user's* id, which nothing
+    on the provider detail response otherwise exposes. Read-only,
+    additive, safe against the existing contract.
     """
 
     name = serializers.CharField(source="user.name", read_only=True)
+    user_id = serializers.IntegerField(source="user.id", read_only=True)
     categories = serializers.SerializerMethodField()
     avg_rating = serializers.SerializerMethodField()
     review_count = serializers.SerializerMethodField()
@@ -100,6 +111,7 @@ class ProviderDetailSerializer(serializers.ModelSerializer):
         model = Provider
         fields = [
             "id",
+            "user_id",
             "name",
             "area",
             "experience",
