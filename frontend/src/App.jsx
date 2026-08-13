@@ -12,6 +12,8 @@ import ProviderPendingPage from '@/pages/ProviderPendingPage'
 import ProviderDashboardPage from '@/pages/ProviderDashboardPage'
 import AccountPlaceholder from '@/pages/AccountPlaceholder'
 import ChatsPage from '@/pages/ChatsPage'
+import RateProviderPage from '@/pages/RateProviderPage'
+import ReportProviderPage from '@/pages/ReportProviderPage'
 
 function NotFound() {
   return (
@@ -30,6 +32,25 @@ function App() {
       <Route path="/verify-otp" element={<VerifyOtpPage />} />
       <Route path="/providers" element={<ProvidersPage />} />
       <Route path="/providers/:id" element={<ProviderDetailPage />} />
+
+      {/* Day 8, Dev 3 */}
+      <Route
+        path="/providers/:id/rate"
+        element={
+          <ProtectedRoute>
+            <RateProviderPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/providers/:id/report"
+        element={
+          <ProtectedRoute>
+            <ReportProviderPage />
+          </ProtectedRoute>
+        }
+      />
+
       <Route
         path="/provider/profile-setup"
         element={

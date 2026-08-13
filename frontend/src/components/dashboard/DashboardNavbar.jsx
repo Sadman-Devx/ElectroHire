@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
  * logged-in-provider counterpart to home/Navbar.jsx's public
  * marketing navbar.
  *
- * - Chats  -> /chats           (Day 7, Dev 3 — page doesn't exist yet)
+ * - Chats  -> /chats           (Day 7, Dev 3 — ChatsPage.jsx)
  * - Reviews -> /provider/reviews (not yet built — same forward-link
  *   pattern the app already uses elsewhere, e.g. ProviderCard linking
  *   to /providers/:id a full day before that page existed)
