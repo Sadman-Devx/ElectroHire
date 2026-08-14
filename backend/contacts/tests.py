@@ -434,3 +434,149 @@ class ConversationListViewTests(APITestCase):
         self.assertEqual(response.data["count"], 2)
         provider_ids = {convo["provider_id"] for convo in response.data["data"]}
         self.assertEqual(provider_ids, {self.karim.id})
+
+# -- Dev 1, Day 9 -------------------------------------------------------------
+class ContactCheckViewTests(APITestCase):
+    """GET /api/contacts/check/{provider_id}/ -- Day 9, Dev 1 (not in the API Contract PDF)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="user@example.com",
+            name="Mahmudul Hasan",
+            phone="01700000000",
+            password="strongpassword123",
+            role="user",
+        )
+        self.provider_user = User.objects.create_user(
+            email="provider@example.com",
+            name="Karim Uddin",
+            phone="01711111111",
+            password="strongpassword123",
+            role="provider",
+        )
+        self.provider = Provider.objects.create(
+            user=self.provider_user,
+            area="Dhanmondi",
+            experience=8,
+            description="Professional electrician.",
+            status="active",
+        )
+        self.url = reverse("contacts:contact-check", args=[self.provider.id])
+
+    def test_unauthenticated_request_rejected(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_returns_false_when_never_contacted(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["data"]["has_contacted"])
+        self.assertEqual(response.data["data"]["provider_id"], self.provider.id)
+
+    def test_returns_true_after_contact_log_created(self):
+        ContactLog.objects.create(user=self.user, provider=self.provider)
+
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url)
+
+        self.assertTrue(response.data["data"]["has_contacted"])
+
+    def test_checking_does_not_itself_create_a_contact_log(self):
+        self.client.force_authenticate(user=self.user)
+        self.client.get(self.url)
+
+        self.assertEqual(ContactLog.objects.count(), 0)
+
+    def test_unknown_provider_returns_404(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(
+            reverse("contacts:contact-check", args=[999999])
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class ContactHistoryViewTests(APITestCase):
+    """GET /api/contacts/history/ -- Day 9, Dev 1 (not in the API Contract PDF)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="user@example.com",
+            name="Mahmudul Hasan",
+            phone="01700000000",
+            password="strongpassword123",
+            role="user",
+        )
+        self.other_user = User.objects.create_user(
+            email="other@example.com",
+            name="Other User",
+            phone="01799999999",
+            password="strongpassword123",
+            role="user",
+        )
+        self.karim_user = User.objects.create_user(
+            email="karim@example.com",
+            name="Karim Uddin",
+            phone="01711111111",
+            password="strongpassword123",
+            role="provider",
+        )
+        self.karim = Provider.objects.create(
+            user=self.karim_user,
+            area="Dhanmondi",
+            experience=8,
+            description="Professional electrician.",
+            status="active",
+        )
+        self.rahim_user = User.objects.create_user(
+            email="rahim@example.com",
+            name="Rahim Mia",
+            phone="01722222222",
+            password="strongpassword123",
+            role="provider",
+        )
+        self.rahim = Provider.objects.create(
+            user=self.rahim_user,
+            area="Mirpur",
+            experience=5,
+            description="Plumber.",
+            status="active",
+        )
+        self.url = reverse("contacts:contact-history")
+
+    def test_unauthenticated_request_rejected(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_returns_only_the_caller_own_contact_history(self):
+        ContactLog.objects.create(user=self.user, provider=self.karim)
+        ContactLog.objects.create(user=self.other_user, provider=self.rahim)
+
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        item = response.data["data"][0]
+        self.assertEqual(item["provider_id"], self.karim.id)
+        self.assertEqual(item["provider_name"], "Karim Uddin")
+        self.assertEqual(item["provider_area"], "Dhanmondi")
+
+    def test_multiple_contacts_newest_first(self):
+        ContactLog.objects.create(user=self.user, provider=self.karim)
+        ContactLog.objects.create(user=self.user, provider=self.rahim)
+
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.data["count"], 2)
+        # ContactLog.Meta.ordering = ["-contacted_at"] -> most recent first.
+        self.assertEqual(response.data["data"][0]["provider_id"], self.rahim.id)
+
+    def test_empty_when_caller_has_no_contacts(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.data["count"], 0)
+        self.assertEqual(response.data["data"], [])

@@ -241,3 +241,73 @@ class ProviderAggregateFieldsTests(APITestCase):
         item = response.data["data"][0]
         self.assertEqual(item["avg_rating"], 5.0)
         self.assertEqual(item["review_count"], 1)
+
+# -- Dev 1, Day 9 -----------------------------------------------------------
+class MyRatingListViewTests(APITestCase):
+    """GET /api/ratings/mine/ -- Day 9, Dev 1 (not in the API Contract PDF)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="user@example.com",
+            name="Mahmudul Hasan",
+            phone="01700000000",
+            password="strongpassword123",
+            role="user",
+        )
+        self.other_user = User.objects.create_user(
+            email="other@example.com",
+            name="Other User",
+            phone="01799999999",
+            password="strongpassword123",
+            role="user",
+        )
+        self.provider_user = User.objects.create_user(
+            email="provider@example.com",
+            name="Karim Uddin",
+            phone="01711111111",
+            password="strongpassword123",
+            role="provider",
+        )
+        self.provider = Provider.objects.create(
+            user=self.provider_user,
+            area="Dhanmondi",
+            experience=8,
+            description="Professional electrician.",
+            status="active",
+        )
+        self.url = reverse("ratings:mine")
+
+    def test_unauthenticated_request_rejected(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_returns_only_the_caller_own_ratings(self):
+        Rating.objects.create(
+            user=self.user,
+            provider=self.provider,
+            rating_value=5,
+            review_text="Great work",
+            tags=["on_time"],
+        )
+        Rating.objects.create(
+            user=self.other_user, provider=self.provider, rating_value=2, tags=[]
+        )
+
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        item = response.data["data"][0]
+        self.assertEqual(item["provider_id"], self.provider.id)
+        self.assertEqual(item["provider_name"], "Karim Uddin")
+        self.assertEqual(item["rating_value"], 5)
+        self.assertEqual(item["tags"], ["on_time"])
+
+    def test_empty_when_caller_has_no_ratings(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 0)
+        self.assertEqual(response.data["data"], [])

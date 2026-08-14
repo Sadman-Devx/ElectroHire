@@ -127,9 +127,42 @@ class LoginSerializer(serializers.Serializer):
 
 
 class UserPublicSerializer(serializers.ModelSerializer):
+    """
+    Was forward-declared but unused until Day 9, Dev 1's GET /api/auth/me/
+    (User Account Page's "Profile Info" section — not in the API
+    Contract PDF) picked it up as-is; field set already matched what
+    that page needs, so nothing here changed.
+    """
+
+    member_since = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ["id", "name", "email", "phone", "role", "verified"]
+        fields = ["id", "name", "email", "phone", "role", "verified", "member_since"]
+
+    def get_member_since(self, obj):
+        from django.utils import timezone
+
+        return timezone.localtime(obj.date_joined).date().isoformat()
+
 
 class ResendOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
+
+
+# ── Dev 1, Day 9 ───────────────────────────────────────────────────
+class RefreshSerializer(serializers.Serializer):
+    """
+    Backs POST /api/auth/refresh/ — not in the API Contract PDF, added
+    per the Day 9 schedule's "JWT Token Refresh Logic বানাও" task.
+
+    Deliberately just {"refresh_token": "..."} rather than SimpleJWT's
+    own default TokenRefreshSerializer field name ("refresh") — every
+    other endpoint in this project uses the *_token naming already
+    established by verify-otp/login's response ("access_token",
+    "refresh_token"), so the request field matches what the frontend
+    already has sitting in tokenStorage.js instead of introducing a
+    second, differently-named convention for one endpoint.
+    """
+
+    refresh_token = serializers.CharField()

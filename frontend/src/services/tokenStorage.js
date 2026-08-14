@@ -58,3 +58,24 @@ export function clearSession() {
 export function getAccessToken() {
   return getSession()?.accessToken ?? null
 }
+
+export function getRefreshToken() {
+  return getSession()?.refreshToken ?? null
+}
+
+/**
+ * Day 9, Dev 1: patches only the access token on an already-stored
+ * session, leaving refreshToken/role/name untouched — used by
+ * apiClient.js's 401 -> POST /api/auth/refresh/ -> retry flow, which
+ * only ever gets back a new access token (see users/views.py
+ * RefreshTokenView; the refresh token itself isn't rotated).
+ *
+ * No-ops (returns null) if there's no session to patch — a refresh
+ * response arriving after the user has already logged out elsewhere
+ * shouldn't resurrect a stale session.
+ */
+export function updateAccessToken(accessToken) {
+  const current = getSession()
+  if (!current) return null
+  return saveSession({ ...current, accessToken })
+}

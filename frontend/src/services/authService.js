@@ -63,3 +63,26 @@ export async function resendOtp(payload) {
     throw toServiceError(error)
   }
 }
+
+/**
+ * GET /api/auth/me/ — Auth required.
+ *
+ * Day 9, Dev 1: not in the API Contract PDF — added to back the User
+ * Account Page's "Profile Info" section. Always the *caller's own*
+ * record (users/views.py MeView) — there's no id parameter to pass.
+ *
+ * Response: { status: "success",
+ *   data: { id, name, email, phone, role, verified, member_since } }
+ *
+ *   const profile = await getMyProfile()
+ */
+export async function getMyProfile() {
+  try {
+    const { data } = await apiClient.get('/auth/me/')
+    return data?.data ?? null
+  } catch (error) {
+    throw toServiceError(error)
+  }
+}
+
+export default { register, login, verifyOtp, resendOtp, getMyProfile }

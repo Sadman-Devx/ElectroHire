@@ -1,5 +1,6 @@
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
+from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from core.response import error_response, first_error_message, success_response
@@ -8,8 +9,10 @@ from .models import OTP, User
 from .utils import send_otp_email
 from .serializers import (
     LoginSerializer,
+    RefreshSerializer,
     RegisterSerializer,
     ResendOTPSerializer,
+    UserPublicSerializer,
     VerifyOTPSerializer,
 )
 
@@ -197,3 +200,67 @@ class LoginView(APIView):
             },
             status_code=200,
         )
+
+
+# ── Dev 1, Day 9 ───────────────────────────────────────────────────
+class RefreshTokenView(APIView):
+    """
+    POST /api/auth/refresh/
+
+    Not in the API Contract PDF — added per the Day 9 schedule's "JWT
+    Token Refresh Logic বানাও" task. SIMPLE_JWT.ACCESS_TOKEN_LIFETIME is
+    only 30 minutes (settings.py), and until this endpoint existed
+    there was no way for the frontend to get a new access token short
+    of forcing the user to log in again every 30 minutes.
+
+    Body: {"refresh_token": "..."}
+    Response (success): {"status": "success", "data": {"access_token": "..."}}
+    Response (error, expired/invalid/blacklisted token): 401
+
+    Deliberately does NOT rotate the refresh token (no
+    ROTATE_REFRESH_TOKENS in SIMPLE_JWT, no token_blacklist app
+    installed) — the same refresh token keeps working until its own
+    7-day REFRESH_TOKEN_LIFETIME expires, at which point the user is
+    sent back to /login the same as any other invalid-token case.
+    Rotation is a reasonable V2 hardening step, not required for this
+    MVP's threat model.
+    """
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = RefreshSerializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response(
+                first_error_message(serializer.errors), status_code=400
+            )
+
+        try:
+            refresh = RefreshToken(serializer.validated_data["refresh_token"])
+            access_token = str(refresh.access_token)
+        except TokenError:
+            return error_response(
+                "Invalid or expired refresh token. Please log in again.",
+                status_code=401,
+            )
+
+        return success_response(data={"access_token": access_token}, status_code=200)
+
+
+# ── Dev 1, Day 9 ───────────────────────────────────────────────────
+class MeView(APIView):
+    """
+    GET /api/auth/me/
+
+    Not in the API Contract PDF — added to back the User Account
+    Page's "Profile Info" section (Day 9 schedule, Dev 1). Auth
+    required; always returns the *caller's own* record — there is no
+    id parameter, deliberately, so this can never be used to look up
+    another account.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        data = UserPublicSerializer(request.user).data
+        return success_response(data=data)

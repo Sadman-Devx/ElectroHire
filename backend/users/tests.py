@@ -428,3 +428,93 @@ class FullAuthJourneyTests(APITestCase):
         user.refresh_from_db()
         self.assertTrue(user.verified)
         self.assertTrue(user.is_active)
+
+# ════════════════════════════════════════════════════════════════
+# Dev 1, Day 9 — GET /api/auth/me/
+# ════════════════════════════════════════════════════════════════
+class MeViewTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="mahmudul@email.com",
+            name="Mahmudul Hasan",
+            phone="01712345678",
+            password="strongpassword123",
+            role="user",
+            verified=True,
+        )
+        self.url = reverse("users:me")
+
+    def test_unauthenticated_request_rejected(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_returns_the_caller_own_profile(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()["data"]
+        self.assertEqual(data["name"], "Mahmudul Hasan")
+        self.assertEqual(data["email"], "mahmudul@email.com")
+        self.assertEqual(data["role"], "user")
+        self.assertTrue(data["verified"])
+        self.assertIn("member_since", data)
+
+
+# ════════════════════════════════════════════════════════════════
+# Dev 1, Day 9 — POST /api/auth/refresh/
+# ════════════════════════════════════════════════════════════════
+class RefreshTokenViewTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="mahmudul@email.com",
+            name="Mahmudul Hasan",
+            phone="01712345678",
+            password="strongpassword123",
+            role="user",
+            verified=True,
+        )
+        self.url = reverse("users:refresh")
+
+    def _login(self):
+        login_response = self.client.post(
+            reverse("users:login"),
+            {"email": "mahmudul@email.com", "password": "strongpassword123"},
+            format="json",
+        )
+        return login_response.json()["data"]["refresh_token"]
+
+    def test_missing_refresh_token_returns_400(self):
+        response = self.client.post(self.url, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["status"], "error")
+
+    def test_invalid_refresh_token_returns_401(self):
+        response = self.client.post(
+            self.url, {"refresh_token": "not-a-real-token"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_valid_refresh_token_returns_new_access_token(self):
+        refresh_token = self._login()
+
+        response = self.client.post(
+            self.url, {"refresh_token": refresh_token}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access_token", response.json()["data"])
+        self.assertTrue(len(response.json()["data"]["access_token"]) > 20)
+
+    def test_new_access_token_actually_authenticates(self):
+        refresh_token = self._login()
+        refresh_response = self.client.post(
+            self.url, {"refresh_token": refresh_token}, format="json"
+        )
+        new_access = refresh_response.json()["data"]["access_token"]
+
+        response = self.client.get(
+            reverse("users:me"), HTTP_AUTHORIZATION=f"Bearer {new_access}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["data"]["email"], "mahmudul@email.com")

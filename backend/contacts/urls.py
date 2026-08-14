@@ -1,6 +1,12 @@
 from django.urls import path
 
-from .views import ContactCreateView, ConversationListView, MessageListCreateView
+from .views import (
+    ContactCheckView,
+    ContactCreateView,
+    ContactHistoryView,
+    ConversationListView,
+    MessageListCreateView,
+)
 
 app_name = "contacts"
 
@@ -16,6 +22,14 @@ urlpatterns = [
         "conversations/",
         ConversationListView.as_view(),
         name="conversation-list",
+    ),
+    # --- Day 9, Dev 1 --- (literal paths before "messages/<provider_id>/"
+    # for the same top-to-bottom resolution reason as "conversations/" above)
+    path("history/", ContactHistoryView.as_view(), name="contact-history"),
+    path(
+        "check/<int:provider_id>/",
+        ContactCheckView.as_view(),
+        name="contact-check",
     ),
     path(
         "messages/<int:provider_id>/",
