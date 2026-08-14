@@ -2,9 +2,20 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Flag, MoreVertical, User as UserIcon } from 'lucide-react'
 
-function ReportMenu({ providerId }) {
+/**
+ * `reportProviderId` is only set by the caller when the *other party*
+ * in this thread is a provider (conversation.other_user_role ===
+ * 'provider') — see ChatWindowHeader below. `conversation.provider_id`
+ * is always present (every thread is provider-scoped on the backend),
+ * but when the signed-in user IS the provider replying to a customer,
+ * that id is the provider's own id, not the customer's — so it must
+ * not be used here, or "Report" would silently let a provider report
+ * themselves. Reporting a *user* isn't built yet (Day 8, Dev 3 only
+ * covers reporting a provider — see pages/ReportProviderPage.jsx),
+ * so that case still shows the "not open yet" placeholder.
+ */
+function ReportMenu({ reportProviderId }) {
   const [isOpen, setIsOpen] = useState(false)
-  const [isAcknowledged, setIsAcknowledged] = useState(false)
   const containerRef = useRef(null)
 
   // Click-outside-to-close — same manual approach the rest of this
@@ -41,10 +52,10 @@ function ReportMenu({ providerId }) {
           role="menu"
           className="absolute right-0 z-10 mt-2 w-64 rounded-[var(--radius-input)] border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-lg shadow-slate-200/70"
         >
-          {providerId ? (
+          {reportProviderId ? (
             <Link
               role="menuitem"
-              to={`/providers/${providerId}`}
+              to={`/providers/${reportProviderId}`}
               onClick={() => setIsOpen(false)}
               className="block rounded-[calc(var(--radius-input)-4px)] px-3 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-bg)]"
             >
@@ -52,21 +63,20 @@ function ReportMenu({ providerId }) {
             </Link>
           ) : null}
 
-          {isAcknowledged ? (
-            <p className="px-3 py-2 text-xs text-[var(--color-text-muted)]">
-              Thanks for letting us know. Reporting isn&rsquo;t open yet, but this will be
-              reviewed once it is.
-            </p>
-          ) : (
-            <button
-              type="button"
+          {reportProviderId ? (
+            <Link
               role="menuitem"
-              onClick={() => setIsAcknowledged(true)}
+              to={`/providers/${reportProviderId}/report`}
+              onClick={() => setIsOpen(false)}
               className="flex w-full items-center gap-2 rounded-[calc(var(--radius-input)-4px)] px-3 py-2 text-left text-sm font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger-tint)]"
             >
               <Flag className="h-3.5 w-3.5" aria-hidden="true" />
               Report
-            </button>
+            </Link>
+          ) : (
+            <p className="px-3 py-2 text-xs text-[var(--color-text-muted)]">
+              Reporting a user isn&rsquo;t available from chat yet.
+            </p>
           )}
         </div>
       ) : null}
@@ -76,16 +86,19 @@ function ReportMenu({ providerId }) {
 
 /**
  * Day 7 spec: chat header for the right panel — identity + online
- * indicator, plus "Report Button (Chat Header-এ ৩-dot Menu)". Report
- * is a placeholder acknowledgement, same wording StickyContactCard
- * already uses — the real Report model/API don't exist until Day 8,
- * Dev 2.
+ * indicator, plus "Report Button (Chat Header-এ ৩-dot Menu)". As of
+ * Day 8, Dev 3, "Report" links to the real Report Provider Page
+ * (route /providers/:id/report) whenever the other party is a
+ * provider — it used to be a placeholder acknowledgement here because
+ * the Report model/API didn't exist until Day 8, Dev 2.
  *
  * `onBack` is only passed (and only rendered) on mobile, where the
  * chat window replaces the conversation list instead of sitting next
  * to it — see ChatsPage.jsx.
  */
 function ChatWindowHeader({ conversation, onBack }) {
+  const reportProviderId =
+    conversation.other_user_role === 'provider' ? conversation.provider_id : null
   return (
     <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-[var(--color-border)] px-4 py-3">
       <div className="flex min-w-0 items-center gap-3">
@@ -124,15 +137,15 @@ function ChatWindowHeader({ conversation, onBack }) {
       </div>
 
       <div className="flex flex-shrink-0 items-center gap-1">
-        {conversation.provider_id ? (
+        {reportProviderId ? (
           <Link
-            to={`/providers/${conversation.provider_id}`}
+            to={`/providers/${reportProviderId}`}
             className="hidden text-xs font-medium text-[var(--color-secondary)] hover:underline sm:block"
           >
             View profile
           </Link>
         ) : null}
-        <ReportMenu providerId={conversation.provider_id} />
+        <ReportMenu reportProviderId={reportProviderId} />
       </div>
     </div>
   )

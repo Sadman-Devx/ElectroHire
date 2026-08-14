@@ -47,8 +47,13 @@ import { formatMonthYear } from '@/lib/formatDate'
  * inventing one. Swap in provider.phone below the moment the contract
  * adds it — nothing else here needs to change.
  *
- * Report is a placeholder acknowledgement, not a real submission — the
- * Report model/API don't exist until Day 8, Dev 2.
+ * Report links to the real Report Provider Page as of Day 8, Dev 3
+ * (route /providers/:id/report) — it used to be a placeholder
+ * acknowledgement here because the Report model/API didn't exist
+ * until Day 8, Dev 2. Not logged in follows the same requireAuth()
+ * redirect the other two actions already use, since that route is
+ * itself wrapped in <ProtectedRoute> (see App.jsx) and would bounce
+ * to /login anyway — checking here first just avoids the extra hop.
  */
 function StickyContactCard({ provider }) {
   const { isAuthenticated } = useAuth()
@@ -66,12 +71,17 @@ function StickyContactCard({ provider }) {
   const [isComposerOpen, setIsComposerOpen] = useState(false)
   const [messageText, setMessageText] = useState('')
   const [sentMessage, setSentMessage] = useState(null)
-  const [isReportOpen, setIsReportOpen] = useState(false)
 
   function requireAuth() {
     if (isAuthenticated) return true
     navigate('/login', { state: { from: location } })
     return false
+  }
+
+  function handleReportClick(event) {
+    if (!requireAuth()) {
+      event.preventDefault()
+    }
   }
 
   function handleOpenComposer() {
@@ -219,20 +229,13 @@ function StickyContactCard({ provider }) {
       ) : null}
 
       <div className="mt-4 border-t border-[var(--color-border)] pt-4">
-        {isReportOpen ? (
-          <p className="text-xs text-[var(--color-text-muted)]">
-            Thanks for letting us know. Reporting isn&rsquo;t open yet, but this will be reviewed
-            once it is.
-          </p>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setIsReportOpen(true)}
-            className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-danger)] hover:underline"
-          >
-            <Flag className="h-3.5 w-3.5" aria-hidden="true" /> Report this provider
-          </button>
-        )}
+        <Link
+          to={`/providers/${provider.id}/report`}
+          onClick={handleReportClick}
+          className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-danger)] hover:underline"
+        >
+          <Flag className="h-3.5 w-3.5" aria-hidden="true" /> Report this provider
+        </Link>
       </div>
     </Card>
   )
