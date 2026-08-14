@@ -10,10 +10,11 @@ import ProviderDetailPage from '@/pages/ProviderDetailPage'
 import ProviderProfileSetupPage from '@/pages/ProviderProfileSetupPage'
 import ProviderPendingPage from '@/pages/ProviderPendingPage'
 import ProviderDashboardPage from '@/pages/ProviderDashboardPage'
-import AccountPlaceholder from '@/pages/AccountPlaceholder'
+import AccountPage from '@/pages/AccountPage'
 import ChatsPage from '@/pages/ChatsPage'
 import RateProviderPage from '@/pages/RateProviderPage'
 import ReportProviderPage from '@/pages/ReportProviderPage'
+import TermsPlaceholder from '@/pages/TermsPlaceholder'
 
 function NotFound() {
   return (
@@ -92,10 +93,14 @@ function App() {
         path="/account"
         element={
           <ProtectedRoute>
-            <AccountPlaceholder />
+            <AccountPage />
           </ProtectedRoute>
         }
       />
+
+      {/* Day 9, Dev 1 — public: no reason to gate legal text behind login */}
+      <Route path="/terms" element={<TermsPlaceholder />} />
+
       <Route path="*" element={<NotFound />} />
     </Routes>
   )

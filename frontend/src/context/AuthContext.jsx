@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { login as loginRequest } from '@/services/authService'
+import { SESSION_EXPIRED_EVENT } from '@/services/apiClient'
 import { clearSession, getSession, saveSession } from '@/services/tokenStorage'
 import { AuthContext } from './auth-context'
 
@@ -24,6 +25,21 @@ function AuthProvider({ children }) {
   const logout = useCallback(() => {
     clearSession()
     setSession(null)
+  }, [])
+
+  // Day 9, Dev 1: apiClient.js dispatches this when a 401 survives a
+  // refresh attempt (refresh token itself expired/invalid — see its
+  // response interceptor). apiClient already cleared localStorage at
+  // that point; this listener is what actually flips isAuthenticated
+  // to false for any already-mounted component, since React state
+  // doesn't know localStorage changed underneath it otherwise.
+  useEffect(() => {
+    function handleSessionExpired() {
+      setSession(null)
+    }
+
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired)
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired)
   }, [])
 
   const completeOtpVerification = useCallback(({ accessToken, refreshToken, role, name = null }) => {

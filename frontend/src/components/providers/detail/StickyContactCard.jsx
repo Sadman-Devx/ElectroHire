@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Flag, MessageCircle, Phone } from 'lucide-react'
+import { Flag, MessageCircle, Phone, Star } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuth } from '@/context/useAuth'
+import { useContactEligibility } from '@/hooks/useContactEligibility'
 import { useContactProvider } from '@/hooks/useContactProvider'
 import { useSendFirstMessage } from '@/hooks/useSendFirstMessage'
 import { formatMonthYear } from '@/lib/formatDate'
@@ -54,6 +55,17 @@ import { formatMonthYear } from '@/lib/formatDate'
  * redirect the other two actions already use, since that route is
  * itself wrapped in <ProtectedRoute> (see App.jsx) and would bounce
  * to /login anyway — checking here first just avoids the extra hop.
+ *
+ * "Rate this provider" — Day 9, Dev 1 addition, exactly where
+ * RateProviderPage.jsx's own docstring already said it would go
+ * ("once wired below") when that page was built on Day 8. Same
+ * requireAuth() pattern when logged out. When logged in,
+ * useContactEligibility() (new today, backed by the new
+ * GET /api/contacts/check/{id}/) decides whether this renders as a
+ * real link or a disabled label — RateProviderPage's own eligibility
+ * handling (EligibilityNotice) is left in place as the backstop, this
+ * is purely a UX improvement that avoids sending an ineligible user
+ * to the form to begin with.
  */
 function StickyContactCard({ provider }) {
   const { isAuthenticated } = useAuth()
@@ -67,6 +79,7 @@ function StickyContactCard({ provider }) {
     reset: resetContact,
   } = useContactProvider(provider.id)
   const { send, isSending, error: sendError, reset: resetSend } = useSendFirstMessage(provider.id)
+  const { hasContacted, isLoading: eligibilityLoading } = useContactEligibility(provider.id)
 
   const [isComposerOpen, setIsComposerOpen] = useState(false)
   const [messageText, setMessageText] = useState('')
@@ -79,6 +92,12 @@ function StickyContactCard({ provider }) {
   }
 
   function handleReportClick(event) {
+    if (!requireAuth()) {
+      event.preventDefault()
+    }
+  }
+
+  function handleRateClick(event) {
     if (!requireAuth()) {
       event.preventDefault()
     }
@@ -228,7 +247,28 @@ function StickyContactCard({ provider }) {
         </div>
       ) : null}
 
-      <div className="mt-4 border-t border-[var(--color-border)] pt-4">
+      <div className="mt-4 flex items-center justify-between border-t border-[var(--color-border)] pt-4">
+        {isAuthenticated && (eligibilityLoading || !hasContacted) ? (
+          <span
+            className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-text-subtle)]"
+            title={
+              eligibilityLoading
+                ? undefined
+                : `Contact ${provider.name} first to leave a rating`
+            }
+          >
+            <Star className="h-3.5 w-3.5" aria-hidden="true" /> Rate this provider
+          </span>
+        ) : (
+          <Link
+            to={`/providers/${provider.id}/rate`}
+            onClick={handleRateClick}
+            className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-secondary)] hover:underline"
+          >
+            <Star className="h-3.5 w-3.5" aria-hidden="true" /> Rate this provider
+          </Link>
+        )}
+
         <Link
           to={`/providers/${provider.id}/report`}
           onClick={handleReportClick}

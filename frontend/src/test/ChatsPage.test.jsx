@@ -7,6 +7,7 @@ import App from '@/App'
 import { AuthProvider } from '@/context/AuthContext'
 import { saveSession } from '@/services/tokenStorage'
 import { getMessageThread, listConversations, sendMessage } from '@/services/chatService'
+import { getProviderDetail } from '@/services/providerService'
 
 // Day 8, Dev 1: chatService replaces the Day 7 mock — mocked here the
 // same way ProviderDetailPage.test.jsx mocks providerService/contactService,
@@ -16,6 +17,17 @@ vi.mock('@/services/chatService', () => ({
   listConversations: vi.fn(),
   getMessageThread: vi.fn(),
   sendMessage: vi.fn(),
+}))
+
+// Day 9, Dev 1: the header's "Report" menu item now navigates to the
+// real Report Provider Page (/providers/:id/report — see
+// ChatWindowHeader.jsx), which itself calls getProviderDetail via
+// useProviderDetail. Mocked here the same way
+// ProviderDetailPage.test.jsx mocks it, purely so that navigation
+// resolves to real page content instead of hanging on a real network
+// call this test environment has no backend for.
+vi.mock('@/services/providerService', () => ({
+  getProviderDetail: vi.fn(),
 }))
 
 // Fixture shapes intentionally match the real API exactly (no
@@ -101,6 +113,7 @@ beforeEach(() => {
   listConversations.mockReset()
   getMessageThread.mockReset()
   sendMessage.mockReset()
+  getProviderDetail.mockReset()
   // jsdom has no real layout engine, so Element.prototype.scrollIntoView
   // doesn't exist — stub it so MessageThread's auto-scroll can be
   // asserted on, same idea as mocking window.matchMedia in other suites.
@@ -245,10 +258,27 @@ describe('ChatsPage', () => {
     expect(screen.queryByText(/rate karim uddin/i)).not.toBeInTheDocument()
   })
 
-  it('shows a placeholder acknowledgement when Report is chosen from the header menu', async () => {
+  it('navigates to the Report Provider page when Report is chosen from the header menu', async () => {
+    // Day 9, Dev 1: updated for the Day 8, Dev 3 change where "Report"
+    // in the chat header menu links to the real Report Provider page
+    // (/providers/:id/report) instead of showing the old "not open
+    // yet" placeholder text — see ChatWindowHeader.jsx.
     loginAsUser()
     listConversations.mockResolvedValue(CONVERSATIONS)
     getMessageThread.mockResolvedValue(KARIM_THREAD)
+    getProviderDetail.mockResolvedValue({
+      id: 1,
+      user_id: 1,
+      name: 'Karim Uddin',
+      area: 'Dhanmondi',
+      experience: 8,
+      description: 'Professional electrician.',
+      photo: null,
+      categories: ['Electrician'],
+      avg_rating: 4.8,
+      review_count: 24,
+      member_since: '2024-01-15',
+    })
     const user = userEvent.setup()
 
     renderChats()
@@ -258,7 +288,7 @@ describe('ChatsPage', () => {
     await user.click(screen.getByRole('button', { name: /more options/i }))
     await user.click(screen.getByRole('menuitem', { name: /^report$/i }))
 
-    expect(await screen.findByText(/reporting isn.t open yet/i)).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /report this provider/i })).toBeInTheDocument()
   })
 
   it('opens the conversation named by the ?with= URL param on load', async () => {

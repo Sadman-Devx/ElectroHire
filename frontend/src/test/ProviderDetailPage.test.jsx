@@ -7,7 +7,7 @@ import App from '@/App'
 import { AuthProvider } from '@/context/AuthContext'
 import { saveSession } from '@/services/tokenStorage'
 import { getProviderDetail } from '@/services/providerService'
-import { createContact } from '@/services/contactService'
+import { createContact, checkContactEligibility } from '@/services/contactService'
 import { sendMessage } from '@/services/chatService'
 
 // Both services make real axios/HTTP calls in production; mocking
@@ -21,6 +21,13 @@ vi.mock('@/services/providerService', () => ({
 
 vi.mock('@/services/contactService', () => ({
   createContact: vi.fn(),
+  // Day 9, Dev 1: useContactEligibility() calls this on mount whenever
+  // the visitor is authenticated. Defaulted to resolve `has_contacted:
+  // true` in beforeEach below so the many pre-existing tests that
+  // login but don't care about rating eligibility keep seeing the
+  // real "Rate this provider" link rather than the disabled state —
+  // tests that specifically care about ineligibility override this.
+  checkContactEligibility: vi.fn(),
 }))
 
 // "Send Message" now sends a real first message via chatService (see
@@ -73,6 +80,10 @@ beforeEach(() => {
   getProviderDetail.mockReset()
   createContact.mockReset()
   sendMessage.mockReset()
+  checkContactEligibility.mockReset()
+  // Default: eligible. Individual tests that specifically exercise the
+  // disabled/ineligible state override this per-test.
+  checkContactEligibility.mockResolvedValue({ has_contacted: true, provider_id: 1 })
 })
 
 afterEach(() => {
@@ -238,16 +249,78 @@ describe('ProviderDetailPage', () => {
     expect(await screen.findByText(/messaging isn't available yet/i)).toBeInTheDocument()
   })
 
-  it('shows a placeholder acknowledgement when Report this provider is clicked', async () => {
+  it('navigates to the Report Provider page when Report this provider is clicked', async () => {
+    // Day 9, Dev 1: updated for the Day 8, Dev 3 change where "Report
+    // this provider" (now a Link, not a button — see
+    // StickyContactCard.jsx) opens the real Report Provider page
+    // instead of the old "not open yet" placeholder text.
+    getProviderDetail.mockResolvedValue(PROVIDER)
+    loginAsUser()
+    const user = userEvent.setup()
+
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Karim Uddin' })
+
+    await user.click(screen.getByRole('link', { name: /report this provider/i }))
+
+    expect(await screen.findByRole('heading', { name: /report this provider/i })).toBeInTheDocument()
+  })
+
+  it('sends an unauthenticated visitor to Login when Report this provider is clicked', async () => {
     getProviderDetail.mockResolvedValue(PROVIDER)
     const user = userEvent.setup()
 
     renderDetail()
     await screen.findByRole('heading', { name: 'Karim Uddin' })
 
-    await user.click(screen.getByRole('button', { name: /report this provider/i }))
+    await user.click(screen.getByRole('link', { name: /report this provider/i }))
 
-    expect(await screen.findByText(/reporting isn.t open yet/i)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^log in$/i })).toBeInTheDocument()
+  })
+
+  // -- Day 9, Dev 1: Contact Log Eligibility Check (Rate button enable/disable) --
+  it('shows Rate this provider as a real link once eligibility resolves true', async () => {
+    getProviderDetail.mockResolvedValue(PROVIDER)
+    checkContactEligibility.mockResolvedValue({ has_contacted: true, provider_id: 1 })
+    loginAsUser()
+    const user = userEvent.setup()
+
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Karim Uddin' })
+
+    const rateLink = await screen.findByRole('link', { name: /rate this provider/i })
+    await user.click(rateLink)
+
+    expect(await screen.findByRole('heading', { name: /rate your experience/i })).toBeInTheDocument()
+  })
+
+  it('shows Rate this provider as disabled when the user has not contacted the provider', async () => {
+    getProviderDetail.mockResolvedValue(PROVIDER)
+    checkContactEligibility.mockResolvedValue({ has_contacted: false, provider_id: 1 })
+    loginAsUser()
+
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Karim Uddin' })
+
+    await waitFor(() => {
+      expect(checkContactEligibility).toHaveBeenCalledWith(1)
+    })
+    expect(screen.queryByRole('link', { name: /rate this provider/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/rate this provider/i)).toBeInTheDocument()
+  })
+
+  it('does not call the eligibility check for a logged-out visitor', async () => {
+    getProviderDetail.mockResolvedValue(PROVIDER)
+
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Karim Uddin' })
+
+    // A logged-out visitor still sees "Rate this provider" as a link
+    // (it funnels through requireAuth() to /login on click, same as
+    // Report) — but the auth-required eligibility endpoint is never
+    // called for them.
+    expect(screen.getByRole('link', { name: /rate this provider/i })).toBeInTheDocument()
+    expect(checkContactEligibility).not.toHaveBeenCalled()
   })
 
   it('links back to the provider list from the breadcrumb', async () => {

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { MessageCircle, Menu, X, Zap } from 'lucide-react'
+import { MessageCircle, Menu, User, X, Zap } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/useAuth'
@@ -39,6 +39,18 @@ function AuthActions({ onNavigate }) {
         >
           <MessageCircle className="h-4 w-4" />
           <span>Messages</span>
+        </Link>
+
+        {/* Day 9, Dev 1: the real Account Page didn't exist until
+            today — /account was reachable directly but never linked
+            from anywhere, so a signed-in user had no way to find it. */}
+        <Link
+          to="/account"
+          onClick={onNavigate}
+          className="flex items-center gap-2 rounded-[var(--radius-button)] px-3 py-2 text-sm font-medium text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg)] hover:text-[var(--color-text)]"
+        >
+          <User className="h-4 w-4" />
+          <span>Account</span>
         </Link>
 
         <span className="hidden text-sm text-[var(--color-text-muted)] lg:inline">

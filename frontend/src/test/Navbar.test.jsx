@@ -61,4 +61,23 @@ describe('Navbar (home page)', () => {
     const messagesLink = await screen.findByRole('link', { name: /messages/i })
     expect(messagesLink).toHaveAttribute('href', '/chats')
   })
+
+  // Day 9, Dev 1: the real Account Page existed at /account since Day
+  // 3 (protected route) but was never linked from anywhere in the UI
+  // until today.
+  it('links "Account" to /account for a signed-in user', async () => {
+    loginAsUser()
+
+    renderHome()
+
+    const accountLink = await screen.findByRole('link', { name: /account/i })
+    expect(accountLink).toHaveAttribute('href', '/account')
+  })
+
+  it('does not show an Account link when no one is signed in', async () => {
+    renderHome()
+
+    await screen.findByRole('link', { name: /log in/i })
+    expect(screen.queryByRole('link', { name: /account/i })).not.toBeInTheDocument()
+  })
 })

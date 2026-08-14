@@ -44,4 +44,26 @@ export async function submitRating({ providerId, ratingValue, reviewText = '', t
   }
 }
 
-export default { submitRating }
+/**
+ * GET /api/ratings/mine/ — Auth required.
+ *
+ * Day 9, Dev 1: not in the API Contract PDF — added to back the User
+ * Account Page's "My Ratings" section. Every rating the caller has
+ * submitted, newest first (ratings/views.py MyRatingListView).
+ *
+ * Response: { status: "success", count: N,
+ *   data: [{ provider_id, provider_name, rating_value, review_text,
+ *            tags, created_at }, ...] }
+ *
+ *   const myRatings = await getMyRatings()
+ */
+export async function getMyRatings() {
+  try {
+    const { data } = await apiClient.get('/ratings/mine/')
+    return data?.data ?? []
+  } catch (error) {
+    throw toServiceError(error)
+  }
+}
+
+export default { submitRating, getMyRatings }
