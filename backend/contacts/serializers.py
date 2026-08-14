@@ -4,6 +4,61 @@ from providers.models import Provider
 from .models import ContactLog, Message
 
 
+class ContactCheckSerializer(serializers.Serializer):
+    """
+    Shapes the response for GET /api/contacts/check/{provider_id}/
+    (Day 9, Dev 1 — not in the API Contract PDF; added to back the
+    Rating button's enable/disable state on ProviderDetailPage).
+
+    `has_contacted` is exactly the same boolean ratings/views.py's
+    RatingCreateView already computes server-side before allowing a
+    rating — exposed here as its own read as a GET, no side effects,
+    so the frontend can decide *before* the user fills out the rating
+    form whether to show it as enabled, rather than finding out only
+    after a failed POST /api/ratings/.
+    """
+
+    has_contacted = serializers.BooleanField()
+    provider_id = serializers.IntegerField()
+
+
+class ContactHistoryItemSerializer(serializers.ModelSerializer):
+    """
+    Shapes each item in GET /api/contacts/history/ (Day 9, Dev 1 — not
+    in the API Contract PDF; backs the User Account Page's "Contact
+    History" section).
+
+    Field choices mirror ProviderListSerializer's public shape
+    (providers/serializers.py) wherever the same data is already
+    exposed elsewhere, so the frontend can reuse one ProviderCard-style
+    render for both — just sourced from ContactLog -> provider instead
+    of the public provider list.
+    """
+
+    provider_id = serializers.IntegerField(source="provider.id")
+    provider_name = serializers.CharField(source="provider.user.name")
+    provider_area = serializers.CharField(source="provider.area")
+    provider_photo = serializers.SerializerMethodField()
+    contacted_at = serializers.DateTimeField()
+
+    class Meta:
+        model = ContactLog
+        fields = [
+            "provider_id",
+            "provider_name",
+            "provider_area",
+            "provider_photo",
+            "contacted_at",
+        ]
+
+    def get_provider_photo(self, obj):
+        photo = obj.provider.photo
+        if not photo:
+            return None
+        request = self.context.get("request")
+        return request.build_absolute_uri(photo.url) if request else photo.url
+
+
 class ContactCreateSerializer(serializers.Serializer):
     """
     Validates the incoming request body for POST /api/contacts/.

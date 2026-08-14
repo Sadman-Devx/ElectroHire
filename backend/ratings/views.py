@@ -8,7 +8,11 @@ from core.response import error_response, first_error_message, success_response
 from providers.models import Provider
 
 from .models import Rating
-from .serializers import ProviderRatingListItemSerializer, RatingCreateSerializer
+from .serializers import (
+    MyRatingListItemSerializer,
+    ProviderRatingListItemSerializer,
+    RatingCreateSerializer,
+)
 
 
 # -- Dev 2, Day 7 -------------------------------------------------------
@@ -66,6 +70,31 @@ class RatingCreateView(APIView):
         return success_response(
             message="Rating submitted", status_code=status.HTTP_201_CREATED
         )
+
+
+# -- Dev 1, Day 9 -------------------------------------------------------
+class MyRatingListView(APIView):
+    """
+    GET /api/ratings/mine/
+
+    Not in the API Contract PDF — added to back the User Account Page's
+    "My Ratings" section (Day 9 schedule, Dev 1). Every rating the
+    authenticated user has submitted, newest first (Rating.Meta.ordering).
+
+    Registered at "mine/" (not "/api/ratings/{provider_id}/" or similar)
+    so it can never collide with a numeric provider-scoped route, and so
+    it reads unambiguously as "the caller's own ratings" rather than a
+    provider lookup.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        ratings = Rating.objects.filter(user=request.user).select_related(
+            "provider", "provider__user"
+        )
+        data = MyRatingListItemSerializer(ratings, many=True).data
+        return success_response(data=data, count=len(data))
 
 
 # -- Dev 2, Day 7 -------------------------------------------------------

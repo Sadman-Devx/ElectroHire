@@ -10,7 +10,9 @@ from core.response import success_response, error_response, first_error_message
 from providers.models import Provider
 from .models import ContactLog, Message
 from .serializers import (
+    ContactCheckSerializer,
     ContactCreateSerializer,
+    ContactHistoryItemSerializer,
     ContactLogResponseSerializer,
     ConversationSerializer,
     MessageCreateResponseSerializer,
@@ -55,6 +57,69 @@ class ContactCreateView(APIView):
             message="Contact logged",
             status_code=status.HTTP_201_CREATED,
         )
+
+
+# -- Dev 1, Day 9 ---------------------------------------------------------
+class ContactCheckView(APIView):
+    """
+    GET /api/contacts/check/{provider_id}/
+
+    Not in the API Contract PDF — added to back the Rating button's
+    enable/disable state on ProviderDetailPage (Day 9 schedule: "Contact
+    Log Eligibility Check (Rating Button Enable/Disable)"). Without this,
+    the frontend's only way to learn whether a user is rating-eligible
+    was to let them fill out the whole rating form and find out from a
+    400 on submit (see ratings/views.py RatingCreateView) — a real but
+    late failure mode this endpoint lets the UI pre-empt.
+
+    Auth required, same as the eligibility check it mirrors. Read-only,
+    no side effects — checking eligibility must not itself create a
+    ContactLog (that would let a user rate without ever actually
+    contacting the provider).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, provider_id):
+        if not Provider.objects.filter(id=provider_id).exists():
+            return error_response("Provider not found", status.HTTP_404_NOT_FOUND)
+
+        has_contacted = ContactLog.objects.filter(
+            user=request.user, provider_id=provider_id
+        ).exists()
+
+        data = ContactCheckSerializer(
+            {"has_contacted": has_contacted, "provider_id": int(provider_id)}
+        ).data
+        return success_response(data=data)
+
+
+# -- Dev 1, Day 9 ---------------------------------------------------------
+class ContactHistoryView(APIView):
+    """
+    GET /api/contacts/history/
+
+    Not in the API Contract PDF — added to back the User Account Page's
+    "Contact History" section (Day 9 schedule, Dev 1: "Profile Info + My
+    Ratings + Contact History"). Every provider the authenticated user
+    has ever contacted (POST /api/contacts/ or a first chat message —
+    see MessageListCreateView.post, which also logs a ContactLog),
+    newest first.
+
+    Auth required. select_related keeps this to one query regardless of
+    how many providers are returned, same reasoning as ConversationListView.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        logs = ContactLog.objects.filter(user=request.user).select_related(
+            "provider", "provider__user"
+        )
+        data = ContactHistoryItemSerializer(
+            logs, many=True, context={"request": request}
+        ).data
+        return success_response(data=data, count=len(data))
 
 
 class MessageListCreateView(APIView):

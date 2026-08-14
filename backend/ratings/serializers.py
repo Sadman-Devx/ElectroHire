@@ -45,6 +45,39 @@ class RatingCreateSerializer(serializers.Serializer):
         return [tag for tag in value if tag in ALLOWED_TAGS]
 
 
+class MyRatingListItemSerializer(serializers.ModelSerializer):
+    """
+    Shapes each item in GET /api/ratings/mine/ (Day 9, Dev 1 — not in
+    the API Contract PDF; backs the User Account Page's "My Ratings"
+    section).
+
+    Same field set as ProviderRatingListItemSerializer plus
+    provider_id/provider_name, since "my ratings" needs to say *which*
+    provider each rating was for (the public per-provider list doesn't,
+    since the provider is already fixed by the URL there).
+    """
+
+    provider_id = serializers.IntegerField(source="provider.id")
+    provider_name = serializers.CharField(source="provider.user.name")
+    created_at = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Rating
+        fields = [
+            "provider_id",
+            "provider_name",
+            "rating_value",
+            "review_text",
+            "tags",
+            "created_at",
+        ]
+
+    def get_created_at(self, obj):
+        from django.utils import timezone
+
+        return timezone.localtime(obj.created_at).date().isoformat()
+
+
 class ProviderRatingListItemSerializer(serializers.ModelSerializer):
     """
     Shapes each item in GET /api/providers/{id}/ratings/.
