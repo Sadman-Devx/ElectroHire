@@ -1,10 +1,14 @@
-from django.db.models import Avg, Count
+from django.db.models import Avg, Count, Q
 from rest_framework.generics import ListAPIView
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
 
+from contacts.models import ContactLog, Message
+from contacts.serializers import MessageListItemSerializer
 from core.response import error_response, first_error_message, success_response
+from ratings.models import Rating
+from ratings.serializers import ProviderRatingListItemSerializer
 
 from .models import Provider
 from .serializers import (
@@ -67,6 +71,92 @@ class ProviderDetailView(APIView):
             provider, context={"request": request}
         )
         return success_response(data=serializer.data, status_code=200)
+
+
+# ── Dev 2, Day 9 ─────────────────────────────────────────────────────
+class ProviderDashboardView(APIView):
+    """
+    GET /api/providers/dashboard/
+
+    Not in the API Contract PDF — added to back Dev 3's Provider
+    Dashboard page (Day 6 schedule: Stats Cards + Recent Messages
+    Preview Section; Day 9 schedule, Dev 2: "Provider Dashboard API —
+    GET /api/providers/dashboard/ ... Stats: contacts_count,
+    ratings_count, avg_rating ... Recent Messages Preview (Last 3) ...
+    Recent Reviews (Last 3)").
+
+    Auth required. Always the *authenticated provider's own* dashboard
+    — no provider_id in the URL or query string, same "no id, it's
+    always the caller" shape GET /api/ratings/mine/ already uses (Dev 1,
+    Day 9). A caller with no Provider profile of their own gets a 403,
+    not a 404 — they're authenticated fine, they just don't have a
+    dashboard to see.
+
+    Registered as a literal "dashboard/" segment ahead of
+    "<int:pk>/" in urls.py (same reasoning contacts/urls.py already
+    documents for its literal-before-variable routes) so it can never
+    be swallowed by the provider-detail route.
+
+    recent_messages / recent_reviews deliberately reuse
+    contacts.serializers.MessageListItemSerializer and
+    ratings.serializers.ProviderRatingListItemSerializer — the exact
+    shapes those two lists already return elsewhere (a message thread /
+    a provider's public ratings list) — instead of inventing a third
+    shape for the same data, so the frontend can reuse whatever
+    components already render those two lists.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        provider = Provider.objects.filter(user=request.user).first()
+        if provider is None:
+            return error_response(
+                "Only providers have a dashboard.", status_code=403
+            )
+
+        contacts_count = ContactLog.objects.filter(provider=provider).count()
+
+        rating_aggregates = Rating.objects.filter(provider=provider).aggregate(
+            avg=Avg("rating_value"), count=Count("id")
+        )
+        ratings_count = rating_aggregates["count"] or 0
+        avg_rating = (
+            round(rating_aggregates["avg"], 1)
+            if rating_aggregates["avg"] is not None
+            else 0.0
+        )
+
+        # A provider's own user account can appear as either party on a
+        # Message row (customer -> provider, or provider replying), so
+        # both sides are pulled here — same sender-or-receiver shape
+        # ConversationListView (contacts/views.py) already uses for its
+        # own "which threads is this user part of" lookup.
+        recent_messages = (
+            Message.objects.filter(Q(sender=request.user) | Q(receiver=request.user))
+            .select_related("sender")
+            .order_by("-created_at")[:3]
+        )
+
+        recent_reviews = (
+            Rating.objects.filter(provider=provider)
+            .select_related("user")
+            .order_by("-created_at")[:3]
+        )
+
+        data = {
+            "contacts_count": contacts_count,
+            "ratings_count": ratings_count,
+            "avg_rating": avg_rating,
+            "recent_messages": MessageListItemSerializer(
+                recent_messages, many=True
+            ).data,
+            "recent_reviews": ProviderRatingListItemSerializer(
+                recent_reviews, many=True
+            ).data,
+        }
+        return success_response(data=data)
+
 
 # ── Dev 1, Day 4 ─────────────────────────────────────────────────────
 class ProviderListView(ListAPIView):

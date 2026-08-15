@@ -50,6 +50,36 @@
         </div>
       </div>
 
+      <div style="flex:1;min-width:180px;background:#ffffff;border:1px solid #d0d0d0;border-radius:6px;padding:16px 20px;box-shadow:0 1px 3px rgba(0,0,0,0.15);">
+        <div style="font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:#5a5a5a;font-weight:600;">
+          {% translate "Total Contacts" %}
+        </div>
+        <div style="font-size:28px;font-weight:700;line-height:1.4;color:#1a1a1a;">
+          {{ dashboard_stats.total_contacts }}
+        </div>
+      </div>
+
+      <div style="flex:1;min-width:180px;background:#ffffff;border:1px solid #d0d0d0;border-radius:6px;padding:16px 20px;box-shadow:0 1px 3px rgba(0,0,0,0.15);">
+        <div style="font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:#5a5a5a;font-weight:600;">
+          {% translate "Total Ratings" %}
+        </div>
+        <div style="font-size:28px;font-weight:700;line-height:1.4;color:#1a1a1a;">
+          {{ dashboard_stats.total_ratings }}
+        </div>
+      </div>
+
+      <div style="flex:1;min-width:180px;background:#eef4ff;border:1px solid #a9c6ff;border-radius:6px;padding:16px 20px;box-shadow:0 1px 3px rgba(0,0,0,0.15);">
+        <div style="font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:#0d47a1;font-weight:700;">
+          {% translate "Contact Rate" %} &middot; {% translate "Primary Metric" %}
+        </div>
+        <div style="font-size:28px;font-weight:700;line-height:1.4;color:#0d47a1;">
+          {{ dashboard_stats.contact_rate }}%
+        </div>
+        <div style="font-size:12px;color:#3a5a8a;margin-top:2px;">
+          {% translate "of registered users have contacted a provider" %}
+        </div>
+      </div>
+
     </div>
   </div>
 

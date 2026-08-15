@@ -4,6 +4,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.test import APITestCase
 
 from categories.models import Category
+from contacts.models import ContactLog, Message
+from ratings.models import Rating
 
 from .models import Provider, ProviderCategory
 
@@ -292,3 +294,84 @@ class ProviderAdminApproveRejectTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         ids = {p.id for p in response.context["cl"].queryset}
         self.assertEqual(ids, {self.provider_1.id, self.provider_2.id})
+
+
+class ProviderDashboardViewTests(APITestCase):
+    """GET /api/providers/dashboard/ — Dev 2, Day 9."""
+
+    def setUp(self):
+        self.provider_user = User.objects.create_user(
+            email="karim@example.com", password="strongpass123", name="Karim Uddin",
+            role=User.ROLE_PROVIDER, verified=True, is_active=True,
+        )
+        self.provider = Provider.objects.create(user=self.provider_user, status="active")
+
+        self.customer_1 = User.objects.create_user(
+            email="c1@example.com", password="pass12345", name="Customer One",
+            role=User.ROLE_USER, is_active=True,
+        )
+        self.customer_2 = User.objects.create_user(
+            email="c2@example.com", password="pass12345", name="Customer Two",
+            role=User.ROLE_USER, is_active=True,
+        )
+
+        ContactLog.objects.create(user=self.customer_1, provider=self.provider)
+        ContactLog.objects.create(user=self.customer_2, provider=self.provider)
+
+        Rating.objects.create(
+            user=self.customer_1, provider=self.provider, rating_value=5,
+            review_text="Great work",
+        )
+        Rating.objects.create(
+            user=self.customer_2, provider=self.provider, rating_value=3,
+        )
+
+        # 4 messages so the "last 3" truncation is actually exercised.
+        for i in range(4):
+            Message.objects.create(
+                sender=self.customer_1, receiver=self.provider_user,
+                content=f"message {i}",
+            )
+
+        self.url = reverse("providers:dashboard")
+        access_token = RefreshToken.for_user(self.provider_user).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 401)
+
+    def test_non_provider_gets_403(self):
+        access_token = RefreshToken.for_user(self.customer_1).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 403)
+
+    def test_stats_are_correct(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+
+        data = response.data["data"]
+        self.assertEqual(data["contacts_count"], 2)
+        self.assertEqual(data["ratings_count"], 2)
+        self.assertEqual(data["avg_rating"], 4.0)  # (5 + 3) / 2
+
+    def test_recent_messages_capped_at_three_newest_first(self):
+        response = self.client.get(self.url)
+        messages = response.data["data"]["recent_messages"]
+
+        self.assertEqual(len(messages), 3)
+        self.assertEqual(messages[0]["content"], "message 3")
+        self.assertEqual(messages[0]["sender_name"], "Customer One")
+
+    def test_recent_reviews_shape_matches_provider_ratings_list(self):
+        response = self.client.get(self.url)
+        reviews = response.data["data"]["recent_reviews"]
+
+        self.assertEqual(len(reviews), 2)
+        self.assertEqual(
+            set(reviews[0].keys()),
+            {"user_name", "rating_value", "review_text", "tags", "created_at"},
+        )
