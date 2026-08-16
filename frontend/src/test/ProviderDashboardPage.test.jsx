@@ -6,9 +6,14 @@ import App from '@/App'
 import { AuthProvider } from '@/context/AuthContext'
 import { saveSession } from '@/services/tokenStorage'
 import { getProviderDashboard } from '@/services/providerDashboardService'
+import { getMyProviderProfile } from '@/services/providerService'
 
 vi.mock('@/services/providerDashboardService', () => ({
   getProviderDashboard: vi.fn(),
+}))
+
+vi.mock('@/services/providerService', () => ({
+  getMyProviderProfile: vi.fn(),
 }))
 
 const DASHBOARD_DATA = {
@@ -47,6 +52,7 @@ function loginAsUser() {
 beforeEach(() => {
   localStorage.clear()
   getProviderDashboard.mockReset()
+  getMyProviderProfile.mockReset()
 })
 
 afterEach(() => {
@@ -70,10 +76,10 @@ describe('ProviderDashboardPage', () => {
     ).toBeInTheDocument()
   })
 
-  it('shows an honest "not available yet" state when the dashboard endpoint 404s (not built until Day 9)', async () => {
+  it('shows an honest "not available yet" state for a provider with no profile yet (403)', async () => {
     loginAsProvider()
-    const error = new Error('Not Found')
-    error.response = { status: 404 }
+    const error = new Error('Forbidden')
+    error.response = { status: 403 }
     getProviderDashboard.mockRejectedValue(error)
 
     renderDashboard()
@@ -108,15 +114,73 @@ describe('ProviderDashboardPage', () => {
     expect(await screen.findByText('No messages yet')).toBeInTheDocument()
   })
 
-  it('shows a real error banner on a non-404 failure', async () => {
+  it('shows a real error banner on a non-403 failure', async () => {
     loginAsProvider()
     const error = new Error('Server error')
-    error.response = { data: { message: 'Could not load your dashboard. Please try again.' } }
+    error.response = { status: 500, data: { message: 'Could not load your dashboard. Please try again.' } }
     getProviderDashboard.mockRejectedValue(error)
 
     renderDashboard()
 
     expect(await screen.findByText(/could not load your dashboard/i)).toBeInTheDocument()
+  })
+
+  it('shows the Verified and status badges plus an Edit profile link once GET /api/providers/me/ resolves', async () => {
+    loginAsProvider()
+    getProviderDashboard.mockResolvedValue(DASHBOARD_DATA)
+    getMyProviderProfile.mockResolvedValue({
+      id: 1,
+      area: 'Dhanmondi',
+      experience: 8,
+      description: '',
+      photo: null,
+      status: 'active',
+      categories: [],
+      verified: true,
+    })
+
+    renderDashboard()
+
+    expect(await screen.findByText('Verified')).toBeInTheDocument()
+    expect(screen.getByText('Active')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Edit profile' })).toHaveAttribute(
+      'href',
+      '/provider/profile-edit'
+    )
+  })
+
+  it('does not show a Verified badge for an unverified pending provider', async () => {
+    loginAsProvider()
+    getProviderDashboard.mockResolvedValue(DASHBOARD_DATA)
+    getMyProviderProfile.mockResolvedValue({
+      id: 1,
+      area: 'Dhanmondi',
+      experience: 1,
+      description: '',
+      photo: null,
+      status: 'pending',
+      categories: [],
+      verified: false,
+    })
+
+    renderDashboard()
+
+    expect(await screen.findByText('Pending review')).toBeInTheDocument()
+    expect(screen.queryByText('Verified')).not.toBeInTheDocument()
+  })
+
+  it('renders no badge and no Edit profile link before the profile fetch resolves', async () => {
+    loginAsProvider()
+    getProviderDashboard.mockResolvedValue(DASHBOARD_DATA)
+    getMyProviderProfile.mockRejectedValue(Object.assign(new Error('Forbidden'), {
+      response: { status: 403 },
+    }))
+
+    renderDashboard()
+
+    await screen.findByRole('heading', { name: /provider dashboard/i })
+    expect(screen.queryByText('Verified')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Edit profile' })).not.toBeInTheDocument()
   })
 
   it('renders the dashboard navbar with Dashboard/Chats/Reviews/Profile links', async () => {
@@ -128,6 +192,6 @@ describe('ProviderDashboardPage', () => {
 
     expect(screen.getByRole('link', { name: 'Chats' })).toHaveAttribute('href', '/chats')
     expect(screen.getByRole('link', { name: 'Reviews' })).toHaveAttribute('href', '/provider/reviews')
-    expect(screen.getByRole('link', { name: 'Profile' })).toHaveAttribute('href', '/provider/profile-setup')
+    expect(screen.getByRole('link', { name: 'Profile' })).toHaveAttribute('href', '/provider/profile-edit')
   })
 })

@@ -198,3 +198,54 @@ class ProviderListSerializer(serializers.ModelSerializer):
 
     def get_review_count(self, obj):
         return getattr(obj, "_review_count", 0) or 0
+
+
+# ── Dev 3, Day 9 ─────────────────────────────────────────────────────
+class ProviderMeSerializer(serializers.ModelSerializer):
+    """
+    Backs GET /api/providers/me/ (Dev 3, Day 9) — auth required.
+
+    Not in the API Contract PDF. Added to unblock the Provider Profile
+    Edit Page, which needs to pre-fill its form with the *caller's own*
+    current values, and to show a Verified/Active badge with real data
+    instead of guessing.
+
+    Differs from ProviderDetailSerializer (public, read-only display)
+    in two ways that only matter for an edit form:
+      - categories is a list of {"id", "name"} objects, not bare
+        names — CategoryMultiSelect needs ids to pre-check the right
+        chips, a name alone can't round-trip back into a selection.
+      - status and verified are exposed here specifically because
+        ProviderDashboardPage's Day 6 comment flagged both as missing
+        ("the backend has no endpoint today that tells a provider
+        their own status") — this endpoint finally closes that gap.
+    """
+
+    categories = serializers.SerializerMethodField()
+    photo = serializers.SerializerMethodField()
+    verified = serializers.BooleanField(source="user.verified", read_only=True)
+
+    class Meta:
+        model = Provider
+        fields = [
+            "id",
+            "area",
+            "experience",
+            "description",
+            "photo",
+            "status",
+            "categories",
+            "verified",
+        ]
+
+    def get_categories(self, obj):
+        return [
+            {"id": category.id, "name": category.name}
+            for category in obj.categories.all()
+        ]
+
+    def get_photo(self, obj):
+        if not obj.photo:
+            return None
+        request = self.context.get("request")
+        return request.build_absolute_uri(obj.photo.url) if request else obj.photo.url

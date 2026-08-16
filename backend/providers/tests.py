@@ -375,3 +375,87 @@ class ProviderDashboardViewTests(APITestCase):
             set(reviews[0].keys()),
             {"user_name", "rating_value", "review_text", "tags", "created_at"},
         )
+
+
+class ProviderMeViewTests(APITestCase):
+    """GET /api/providers/me/ — Dev 3, Day 9."""
+
+    def setUp(self):
+        self.provider_user = User.objects.create_user(
+            email="karim@example.com", password="strongpass123", name="Karim Uddin",
+            role=User.ROLE_PROVIDER, verified=True, is_active=True,
+        )
+        self.electrician = Category.objects.create(name="Electrician", icon="bulb")
+        self.ac_repair = Category.objects.create(name="AC Repair", icon="ac")
+
+        self.url = reverse("providers:me")
+        access_token = RefreshToken.for_user(self.provider_user).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 401)
+
+    def test_no_provider_profile_gets_403(self):
+        # Same 403 (not 404) ProviderDashboardView already uses for the
+        # identical "authenticated, but no Provider row yet" condition —
+        # kept consistent on purpose, see the view's docstring.
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 403)
+
+    def test_returns_own_profile_with_category_ids_status_and_verified(self):
+        provider = Provider.objects.create(
+            user=self.provider_user,
+            area="Dhanmondi",
+            experience=8,
+            description="Pro electrician",
+            status="active",
+        )
+        ProviderCategory.objects.create(provider=provider, category=self.electrician)
+        ProviderCategory.objects.create(provider=provider, category=self.ac_repair)
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+
+        data = response.data["data"]
+        self.assertEqual(data["area"], "Dhanmondi")
+        self.assertEqual(data["experience"], 8)
+        self.assertEqual(data["description"], "Pro electrician")
+        self.assertEqual(data["status"], "active")
+        self.assertTrue(data["verified"])
+        self.assertEqual(
+            {category["id"] for category in data["categories"]},
+            {self.electrician.id, self.ac_repair.id},
+        )
+        self.assertEqual(
+            {category["name"] for category in data["categories"]},
+            {"Electrician", "AC Repair"},
+        )
+
+    def test_never_returns_another_users_provider(self):
+        other_user = User.objects.create_user(
+            email="other@example.com", password="strongpass123", name="Other Provider",
+            role=User.ROLE_PROVIDER, verified=True, is_active=True,
+        )
+        Provider.objects.create(user=other_user, area="Gulshan", experience=2, status="active")
+
+        # self.provider_user (the authenticated caller) still has no
+        # Provider row of their own.
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 403)
+
+    def test_unverified_user_gets_verified_false(self):
+        unverified_user = User.objects.create_user(
+            email="unverified@example.com", password="strongpass123", name="New Provider",
+            role=User.ROLE_PROVIDER, verified=False, is_active=True,
+        )
+        Provider.objects.create(user=unverified_user, area="Mirpur", experience=1, status="pending")
+
+        access_token = RefreshToken.for_user(unverified_user).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data["data"]["verified"])
+        self.assertEqual(response.data["data"]["status"], "pending")

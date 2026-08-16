@@ -25,6 +25,15 @@ function loginAsUser() {
   saveSession({ accessToken: 'token-xyz', refreshToken: 'refresh-xyz', role: 'user', name: 'Mahmudul' })
 }
 
+function loginAsProvider() {
+  saveSession({
+    accessToken: 'token-abc',
+    refreshToken: 'refresh-abc',
+    role: 'provider',
+    name: 'Karim Uddin',
+  })
+}
+
 beforeEach(() => {
   localStorage.clear()
   getCategories.mockResolvedValue([])
@@ -79,5 +88,27 @@ describe('Navbar (home page)', () => {
 
     await screen.findByRole('link', { name: /log in/i })
     expect(screen.queryByRole('link', { name: /account/i })).not.toBeInTheDocument()
+  })
+
+  // Day 9, Dev 3: /dashboard (user) and /provider/dashboard (provider)
+  // both existed already but, same gap the Account link above was
+  // added to close, had no link from any page still using this public
+  // Navbar until today.
+  it('links "Dashboard" to /dashboard for a signed-in user', async () => {
+    loginAsUser()
+
+    renderHome()
+
+    const dashboardLink = await screen.findByRole('link', { name: /dashboard/i })
+    expect(dashboardLink).toHaveAttribute('href', '/dashboard')
+  })
+
+  it('links "Dashboard" to /provider/dashboard for a signed-in provider', async () => {
+    loginAsProvider()
+
+    renderHome()
+
+    const dashboardLink = await screen.findByRole('link', { name: /dashboard/i })
+    expect(dashboardLink).toHaveAttribute('href', '/provider/dashboard')
   })
 })
