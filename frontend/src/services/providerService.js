@@ -72,6 +72,32 @@ export async function getProviderDetail(id) {
  * `.errors` (when present) is the raw DRF field-error map, e.g.
  *   { categories: ["Invalid category id(s): [9999]"] }
  */
+/**
+ * GET /api/providers/me/ — auth required. Day 9, Dev 3.
+ *
+ * Not in the API Contract PDF — backs the Provider Profile Edit Page
+ * (and the Verified/status badge on the Provider Dashboard), which
+ * both need the *caller's own* current provider row rather than the
+ * public GET /api/providers/{id}/ shape. Backend
+ * (providers/views.py ProviderMeView / ProviderMeSerializer) returns:
+ *   { status: "success", data: { id, area, experience, description,
+ *     photo, status, categories: [{id, name}, ...], verified } }
+ *
+ * A caller with no Provider row yet gets a 403 ("You haven't set up
+ * a provider profile yet."), not a 404 — same reasoning
+ * getProviderDashboard() already documents for its own "no Provider
+ * row" case.
+ *
+ * Left un-try/catched on purpose, same as getProviderDetail() above —
+ * this is a mount-time fetch, so the caller (useProviderMyProfile)
+ * owns loading/error state and needs the raw axios error to tell the
+ * "no profile yet" 403 apart from a genuine network/server error.
+ */
+export async function getMyProviderProfile() {
+  const response = await apiClient.get('/providers/me/')
+  return response.data?.data ?? null
+}
+
 export async function setupProviderProfile({ categories, area, experience, description, photo }) {
   const formData = new FormData()
   categories.forEach((categoryId) => formData.append('categories', categoryId))
@@ -90,4 +116,4 @@ export async function setupProviderProfile({ categories, area, experience, descr
   }
 }
 
-export default { getProviders, getProviderDetail, setupProviderProfile }
+export default { getProviders, getProviderDetail, getMyProviderProfile, setupProviderProfile }
