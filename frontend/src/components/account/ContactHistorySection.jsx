@@ -22,11 +22,17 @@ function ContactItemSkeleton() {
  * (both new today — not in the API Contract PDF). Same
  * skeleton/empty/error shape as
  * components/dashboard/RecentMessagesPreview.jsx.
+ *
+ * `title` (Day 9, Dev 3) defaults to "Contact history" — overridden to
+ * "Recently contacted" on the new User Dashboard page, which reuses
+ * this component (usually passed a trimmed `history` slice) rather
+ * than duplicating the same list/skeleton/empty-state markup a second
+ * time just to change one heading.
  */
-function ContactHistorySection({ history, isLoading, error }) {
+function ContactHistorySection({ history, isLoading, error, title = 'Contact history' }) {
   return (
     <Card className="p-5 sm:p-6">
-      <p className="mb-1 text-sm font-semibold text-[var(--color-text)]">Contact history</p>
+      <p className="mb-1 text-sm font-semibold text-[var(--color-text)]">{title}</p>
 
       {isLoading ? (
         <div className="divide-y divide-[var(--color-border)]">

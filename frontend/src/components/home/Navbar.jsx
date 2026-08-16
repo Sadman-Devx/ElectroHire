@@ -1,6 +1,13 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { MessageCircle, Menu, User, X, Zap } from 'lucide-react'
+import {
+  LayoutDashboard,
+  MessageCircle,
+  Menu,
+  User,
+  X,
+  Zap,
+} from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/useAuth'
@@ -33,6 +40,19 @@ function AuthActions({ onNavigate }) {
     return (
       <div className="flex items-center gap-3">
         <Link
+          to={
+            user?.role === 'provider'
+              ? '/provider/dashboard'
+              : '/dashboard'
+          }
+          onClick={onNavigate}
+          className="flex items-center gap-2 rounded-[var(--radius-button)] px-3 py-2 text-sm font-medium text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg)] hover:text-[var(--color-text)]"
+        >
+          <LayoutDashboard className="h-4 w-4" />
+          <span>Dashboard</span>
+        </Link>
+
+        <Link
           to="/chats"
           onClick={onNavigate}
           className="flex items-center gap-2 rounded-[var(--radius-button)] px-3 py-2 text-sm font-medium text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg)] hover:text-[var(--color-text)]"
@@ -41,9 +61,6 @@ function AuthActions({ onNavigate }) {
           <span>Messages</span>
         </Link>
 
-        {/* Day 9, Dev 1: the real Account Page didn't exist until
-            today — /account was reachable directly but never linked
-            from anywhere, so a signed-in user had no way to find it. */}
         <Link
           to="/account"
           onClick={onNavigate}
@@ -86,14 +103,12 @@ function AuthActions({ onNavigate }) {
   )
 }
 
-/**
- * Sticky home-page navbar:
- * - Logo + nav links + Login/Signup
- * - Nav links point at in-page section ids
- * - Collapses into a slide-down menu on small screens
- */
 function Navbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+
+  const handleMobileNavigate = () => {
+    setIsMenuOpen(false)
+  }
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur">
@@ -136,14 +151,14 @@ function Navbar() {
       </nav>
 
       {/* Mobile menu */}
-      {isMenuOpen ? (
+      {isMenuOpen && (
         <div className="border-t border-[var(--color-border)] bg-[var(--color-surface)] px-4 pb-5 pt-2 md:hidden">
           <ul className="flex flex-col gap-1">
             {NAV_LINKS.map((link) => (
               <li key={link.href}>
                 <a
                   href={link.href}
-                  onClick={() => setIsMenuOpen(false)}
+                  onClick={handleMobileNavigate}
                   className="block rounded-[var(--radius-button)] px-2 py-2.5 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-bg)] hover:text-[var(--color-text)]"
                 >
                   {link.label}
@@ -153,12 +168,10 @@ function Navbar() {
           </ul>
 
           <div className="mt-3 border-t border-[var(--color-border)] pt-3">
-            <AuthActions
-              onNavigate={() => setIsMenuOpen(false)}
-            />
+            <AuthActions onNavigate={handleMobileNavigate} />
           </div>
         </div>
-      ) : null}
+      )}
     </header>
   )
 }

@@ -14,6 +14,7 @@ from .models import Provider
 from .serializers import (
     ProviderDetailSerializer,
     ProviderListSerializer,
+    ProviderMeSerializer,
     ProviderProfileSetupSerializer,
 )
 
@@ -71,6 +72,51 @@ class ProviderDetailView(APIView):
             provider, context={"request": request}
         )
         return success_response(data=serializer.data, status_code=200)
+
+
+# ── Dev 3, Day 9 ─────────────────────────────────────────────────────
+class ProviderMeView(APIView):
+    """
+    GET /api/providers/me/
+
+    Not in the API Contract PDF — added to back the Provider Profile
+    Edit Page (Day 9 schedule, Dev 3: "Provider Profile Edit Page ...
+    Category Edit (Multiple), Area, Experience Edit ... Verified/Active
+    Badge দেখাবে"). The edit form needs the caller's *real* current
+    values to pre-fill itself — categories, area, experience,
+    description, photo — plus status and verified so the page can show
+    an honest badge instead of inventing one.
+
+    Auth required. Always the *authenticated user's own* provider row
+    — no id in the URL, same "no id, it's always the caller" shape
+    ProviderDashboardView (below) and users.MeView already use. Same
+    reasoning too for the 403 when there's no Provider row yet: the
+    caller is authenticated fine, they just don't have a profile to
+    edit yet (they haven't completed POST /api/providers/profile/),
+    which is exactly the case ProviderDashboardView already treats as
+    403 rather than 404 for the same underlying "no Provider row"
+    condition — kept consistent here on purpose.
+
+    Registered as a literal "me/" segment ahead of "<int:pk>/" in
+    urls.py, same reasoning already documented there for "dashboard/".
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        provider = (
+            Provider.objects.select_related("user")
+            .prefetch_related("categories")
+            .filter(user=request.user)
+            .first()
+        )
+        if provider is None:
+            return error_response(
+                "You haven't set up a provider profile yet.", status_code=403
+            )
+
+        serializer = ProviderMeSerializer(provider, context={"request": request})
+        return success_response(data=serializer.data)
 
 
 # ── Dev 2, Day 9 ─────────────────────────────────────────────────────

@@ -11,8 +11,18 @@ const ACCEPTED_TYPES = 'image/jpeg,image/png,image/webp'
  * the parent form's state, this component only turns
  * drag/drop/click/keyboard interactions into `onChange(file)` calls
  * and renders a live preview.
+ *
+ * `existingPhotoUrl` (Day 9, Dev 3) is an optional fallback image URL
+ * — used only when no new `file` has been picked yet. The Setup page
+ * never has an existing photo to show and doesn't pass this prop, so
+ * its behavior is unchanged; the Edit page passes the provider's
+ * current photo so re-opening the form doesn't look like the photo
+ * was cleared. There's deliberately no way to *remove* an existing
+ * photo down to nothing here — the backend (ProviderProfileSetupSerializer)
+ * only ever replaces a photo, it has no "clear photo" semantics, so
+ * the UI doesn't offer an action it can't back.
  */
-function PhotoDropzone({ file, onChange, error, disabled = false }) {
+function PhotoDropzone({ file, existingPhotoUrl = null, onChange, error, disabled = false }) {
   const inputRef = useRef(null)
   const [isDraggingOver, setIsDraggingOver] = useState(false)
 
@@ -21,6 +31,8 @@ function PhotoDropzone({ file, onChange, error, disabled = false }) {
   // sync. The effect below exists purely to release the *previous*
   // URL once React has committed a new one (and on unmount).
   const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file])
+  const displayUrl = previewUrl || existingPhotoUrl
+  const hasPhoto = Boolean(displayUrl)
 
   useEffect(() => {
     return () => {
@@ -67,7 +79,7 @@ function PhotoDropzone({ file, onChange, error, disabled = false }) {
         <div
           role="button"
           tabIndex={disabled ? -1 : 0}
-          aria-label={file ? 'Drag and drop to change profile photo' : 'Drag and drop to add profile photo'}
+          aria-label={hasPhoto ? 'Drag and drop to change profile photo' : 'Drag and drop to add profile photo'}
           aria-describedby={error ? 'photo-upload-error' : undefined}
           onClick={openFileDialog}
           onKeyDown={handleKeyDown}
@@ -87,8 +99,8 @@ function PhotoDropzone({ file, onChange, error, disabled = false }) {
                 : 'border-[var(--color-primary)]/50 bg-[var(--color-primary-tint)] hover:border-[var(--color-primary)]'
           )}
         >
-          {previewUrl ? (
-            <img src={previewUrl} alt="Selected profile" className="h-full w-full object-cover" />
+          {displayUrl ? (
+            <img src={displayUrl} alt="Profile" className="h-full w-full object-cover" />
           ) : (
             <Camera className="h-7 w-7 text-[var(--color-primary-hover)]" aria-hidden="true" />
           )}
@@ -122,6 +134,7 @@ function PhotoDropzone({ file, onChange, error, disabled = false }) {
         <p className="text-sm font-medium text-[var(--color-text)]">Profile photo</p>
         <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
           Drag a photo onto the circle, or click to choose one. JPG, PNG, or WEBP, up to 5MB.
+          {existingPhotoUrl && !file ? ' Leave unchanged to keep your current photo.' : ''}
         </p>
         <button
           type="button"
@@ -129,7 +142,7 @@ function PhotoDropzone({ file, onChange, error, disabled = false }) {
           disabled={disabled}
           className="mt-2 rounded-[var(--radius-button)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-1.5 text-xs font-semibold text-[var(--color-text)] hover:border-[var(--color-border-strong)] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {file ? 'Choose a different photo' : 'Choose photo'}
+          {hasPhoto ? 'Choose a different photo' : 'Choose photo'}
         </button>
         {file ? (
           <p className="mt-1.5 max-w-[220px] truncate text-xs text-[var(--color-text-subtle)]" title={file.name}>

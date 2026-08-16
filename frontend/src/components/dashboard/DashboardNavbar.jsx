@@ -15,16 +15,17 @@ import { cn } from '@/lib/utils'
  * - Reviews -> /provider/reviews (not yet built — same forward-link
  *   pattern the app already uses elsewhere, e.g. ProviderCard linking
  *   to /providers/:id a full day before that page existed)
- * - Profile -> /provider/profile-setup — reuses today's setup page,
- *   which already POSTs as an upsert (update_or_create), so it
- *   doubles as "edit profile" until Day 9, Dev 3 builds a dedicated
- *   Provider Profile Edit Page.
+ * - Profile -> /provider/profile-edit (Day 9, Dev 3 — ProviderProfileEditPage).
+ *   Used to point at /provider/profile-setup as a stand-in — that page's
+ *   POST is an upsert, so it doubled as "edit" — until this dedicated
+ *   Edit page existed to pre-fill the form with the provider's real
+ *   current values (GET /api/providers/me/) instead of a blank form.
  */
 const NAV_LINKS = [
   { label: 'Dashboard', to: '/provider/dashboard' },
   { label: 'Chats', to: '/chats' },
   { label: 'Reviews', to: '/provider/reviews' },
-  { label: 'Profile', to: '/provider/profile-setup' },
+  { label: 'Profile', to: '/provider/profile-edit' },
 ]
 
 function Logo() {

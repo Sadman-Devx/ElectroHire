@@ -12,6 +12,7 @@ from .views import (
     ProviderDashboardView,
     ProviderDetailView,
     ProviderListView,
+    ProviderMeView,
     ProviderProfileSetupView,
 )
 
@@ -23,6 +24,9 @@ urlpatterns = [
     # for the same top-to-bottom resolution reason contacts/urls.py
     # already documents for its own literal-before-variable routes.
     path("dashboard/", ProviderDashboardView.as_view(), name="dashboard"),
+    # --- Day 9, Dev 3 --- same literal-before-variable reasoning as
+    # "dashboard/" above.
+    path("me/", ProviderMeView.as_view(), name="me"),
     path("", ProviderListView.as_view(), name="list"),
     path("<int:pk>/", ProviderDetailView.as_view(), name="detail"),
     path("<int:pk>/ratings/", ProviderRatingListView.as_view(), name="ratings-list"),

@@ -8,9 +8,11 @@ import VerifyOtpPage from '@/pages/VerifyOtpPage'
 import ProvidersPage from '@/pages/ProvidersPage'
 import ProviderDetailPage from '@/pages/ProviderDetailPage'
 import ProviderProfileSetupPage from '@/pages/ProviderProfileSetupPage'
+import ProviderProfileEditPage from '@/pages/ProviderProfileEditPage'
 import ProviderPendingPage from '@/pages/ProviderPendingPage'
 import ProviderDashboardPage from '@/pages/ProviderDashboardPage'
 import AccountPage from '@/pages/AccountPage'
+import UserDashboardPage from '@/pages/UserDashboardPage'
 import ChatsPage from '@/pages/ChatsPage'
 import RateProviderPage from '@/pages/RateProviderPage'
 import ReportProviderPage from '@/pages/ReportProviderPage'
@@ -61,6 +63,16 @@ function App() {
         }
       />
 
+      {/* Day 9, Dev 3 */}
+      <Route
+        path="/provider/profile-edit"
+        element={
+          <ProtectedRoute>
+            <ProviderProfileEditPage />
+          </ProtectedRoute>
+        }
+      />
+
       {/* Day 6, Dev 3 */}
       <Route
         path="/provider/pending"
@@ -94,6 +106,16 @@ function App() {
         element={
           <ProtectedRoute>
             <AccountPage />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Day 9, Dev 3 */}
+      <Route
+        path="/dashboard"
+        element={
+          <ProtectedRoute>
+            <UserDashboardPage />
           </ProtectedRoute>
         }
       />
