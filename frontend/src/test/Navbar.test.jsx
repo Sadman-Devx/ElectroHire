@@ -6,14 +6,27 @@ import App from '@/App'
 import { AuthProvider } from '@/context/AuthContext'
 import { saveSession } from '@/services/tokenStorage'
 import { getCategories } from '@/services/categoryService'
+import { getProviders } from '@/services/providerService'
 
 vi.mock('@/services/categoryService', () => ({
   getCategories: vi.fn(),
 }))
 
-function renderHome() {
+vi.mock('@/services/providerService', () => ({
+  getProviders: vi.fn(),
+}))
+
+// Day 9, Dev 1/3: a signed-in user (or provider) landing on '/' now
+// redirects straight to their dashboard (HomePage.jsx) — UserNavbar
+// or DashboardNavbar, never this Navbar — so rendering these tests at
+// '/' would no longer exercise Navbar's own authenticated-link logic
+// at all. /providers (ProvidersPage) still renders this exact Navbar
+// unconditionally for every role, so that's what these render against
+// instead. getProviders() resolves to [] since these tests only care
+// about the navbar, not the provider list underneath it.
+function renderProvidersPage() {
   return render(
-    <MemoryRouter initialEntries={['/']}>
+    <MemoryRouter initialEntries={['/providers']}>
       <AuthProvider>
         <App />
       </AuthProvider>
@@ -37,6 +50,7 @@ function loginAsProvider() {
 beforeEach(() => {
   localStorage.clear()
   getCategories.mockResolvedValue([])
+  getProviders.mockResolvedValue({ data: [], count: 0 })
 })
 
 afterEach(() => {
@@ -53,9 +67,9 @@ afterEach(() => {
  * components/home/Navbar.jsx; this test pins the correct href so it
  * can't silently regress.
  */
-describe('Navbar (home page)', () => {
+describe('Navbar (providers page)', () => {
   it('shows Log in / Sign up when no one is signed in', async () => {
-    renderHome()
+    renderProvidersPage()
 
     expect(await screen.findByRole('link', { name: /log in/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /sign up/i })).toBeInTheDocument()
@@ -65,7 +79,7 @@ describe('Navbar (home page)', () => {
   it('links "Messages" to /chats (not /messages) for a signed-in user', async () => {
     loginAsUser()
 
-    renderHome()
+    renderProvidersPage()
 
     const messagesLink = await screen.findByRole('link', { name: /messages/i })
     expect(messagesLink).toHaveAttribute('href', '/chats')
@@ -77,14 +91,14 @@ describe('Navbar (home page)', () => {
   it('links "Account" to /account for a signed-in user', async () => {
     loginAsUser()
 
-    renderHome()
+    renderProvidersPage()
 
-    const accountLink = await screen.findByRole('link', { name: /account/i })
+    const accountLink = await screen.findByRole('link', { name: 'Account' })
     expect(accountLink).toHaveAttribute('href', '/account')
   })
 
   it('does not show an Account link when no one is signed in', async () => {
-    renderHome()
+    renderProvidersPage()
 
     await screen.findByRole('link', { name: /log in/i })
     expect(screen.queryByRole('link', { name: /account/i })).not.toBeInTheDocument()
@@ -97,7 +111,7 @@ describe('Navbar (home page)', () => {
   it('links "Dashboard" to /dashboard for a signed-in user', async () => {
     loginAsUser()
 
-    renderHome()
+    renderProvidersPage()
 
     const dashboardLink = await screen.findByRole('link', { name: /dashboard/i })
     expect(dashboardLink).toHaveAttribute('href', '/dashboard')
@@ -106,7 +120,7 @@ describe('Navbar (home page)', () => {
   it('links "Dashboard" to /provider/dashboard for a signed-in provider', async () => {
     loginAsProvider()
 
-    renderHome()
+    renderProvidersPage()
 
     const dashboardLink = await screen.findByRole('link', { name: /dashboard/i })
     expect(dashboardLink).toHaveAttribute('href', '/provider/dashboard')

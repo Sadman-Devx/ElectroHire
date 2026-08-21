@@ -48,9 +48,21 @@ function LoginPage() {
     try {
       // login() calls POST /auth/login/, stores the returned JWT pair
       // in localStorage, and updates AuthContext's state — see
-      // src/context/AuthContext.jsx.
-      await login(values)
-      navigate('/')
+      // src/context/AuthContext.jsx. It resolves with that same
+      // session (including role), so we can route straight to the
+      // right dashboard without waiting for a re-render.
+      //
+      // Day 9, Dev 1/3: previously this always sent everyone to '/' —
+      // fine for an anonymous visitor, but a signed-in provider has no
+      // reason to land on the public "search for a technician" home
+      // page, and neither does a returning user when a personalized
+      // /dashboard already exists (Day 9, Dev 3). HomePage itself
+      // bounces an already-authenticated visitor the same way, so this
+      // also covers anyone who lands on /login while already logged in.
+      const session = await login(values)
+      navigate(session.role === 'provider' ? '/provider/dashboard' : '/dashboard', {
+        replace: true,
+      })
     } catch (error) {
       setSubmitError(error.message || 'Something went wrong. Please try again.')
     } finally {

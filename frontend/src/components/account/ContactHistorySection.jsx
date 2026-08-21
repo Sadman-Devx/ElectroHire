@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
-import { AlertCircle, MapPin, Phone, User as UserIcon } from 'lucide-react'
+import { AlertCircle, MapPin, Phone } from 'lucide-react'
 
+import { Avatar } from '@/components/ui/avatar'
 import { Card } from '@/components/ui/card'
 import { formatConversationTime } from '@/lib/formatChatTime'
 
@@ -55,19 +56,8 @@ function ContactHistorySection({ history, isLoading, error, title = 'Contact his
         <ul className="divide-y divide-[var(--color-border)]">
           {history.map((item) => (
             <li key={item.provider_id} className="flex items-center gap-3 py-3">
-              <Link
-                to={`/providers/${item.provider_id}`}
-                className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--color-bg)]"
-              >
-                {item.provider_photo ? (
-                  <img
-                    src={item.provider_photo}
-                    alt={item.provider_name}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <UserIcon className="h-4 w-4 text-[var(--color-text-subtle)]" aria-hidden="true" />
-                )}
+              <Link to={`/providers/${item.provider_id}`} className="flex-shrink-0">
+                <Avatar src={item.provider_photo} alt={item.provider_name} size="h-9 w-9" iconSize="h-4 w-4" />
               </Link>
               <div className="min-w-0 flex-1">
                 <Link

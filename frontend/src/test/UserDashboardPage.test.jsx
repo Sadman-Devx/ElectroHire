@@ -181,7 +181,24 @@ describe('UserDashboardPage', () => {
     )
   })
 
-  it('renders the public Navbar for a "user" role and the DashboardNavbar for a "provider" role', async () => {
+  it('renders UserNavbar for a "user" role and DashboardNavbar for a "provider" role', async () => {
+    loginAsUser()
+    getContactHistory.mockResolvedValue([])
+    getMyRatings.mockResolvedValue([])
+
+    renderDashboard()
+    await screen.findByText(/haven.t contacted any providers yet/i)
+
+    // UserNavbar (Day 9, Dev 1/3 post-launch fix, replacing the public
+    // Navbar here) — Dashboard/Messages/Account, no dead marketing
+    // anchor links. "Account" matched on the exact name since the page
+    // also has its own "View your full account & history" link whose
+    // accessible name contains the same word.
+    expect(screen.getByRole('link', { name: /messages/i })).toHaveAttribute('href', '/chats')
+    expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/account')
+  })
+
+  it('renders DashboardNavbar (not UserNavbar) for a "provider" role', async () => {
     loginAsProvider()
     getContactHistory.mockResolvedValue([])
     getMyRatings.mockResolvedValue([])
@@ -195,5 +212,24 @@ describe('UserDashboardPage', () => {
       'href',
       '/provider/reviews'
     )
+  })
+
+  // Day 9, Dev 3 (post-launch addition): CategoryQuickLinks — a fast
+  // "jump straight to a category" shortcut, distinct from HomePage's
+  // bigger marketing-oriented PopularCategories grid. Links to the
+  // exact same /providers?category=<id> shape SearchBox already builds
+  // (see pages/ProvidersPage.jsx), so ProvidersPage needs no changes.
+  it('shows category quick-jump links that route to /providers?category=<id>', async () => {
+    loginAsUser()
+    getContactHistory.mockResolvedValue([])
+    getMyRatings.mockResolvedValue([])
+
+    renderDashboard()
+
+    const electricianLink = await screen.findByRole('link', { name: /electrician/i })
+    expect(electricianLink).toHaveAttribute('href', '/providers?category=1')
+
+    const plumberLink = screen.getByRole('link', { name: /plumber/i })
+    expect(plumberLink).toHaveAttribute('href', '/providers?category=2')
   })
 })

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { ChatWindow } from '@/components/chat/ChatWindow'
 import { ConversationListPanel } from '@/components/chat/ConversationListPanel'
 import { DashboardNavbar } from '@/components/dashboard/DashboardNavbar'
-import { Navbar } from '@/components/home/Navbar'
+import { UserNavbar } from '@/components/dashboard/UserNavbar'
 import { useAuth } from '@/context/useAuth'
 import { useChatThread } from '@/hooks/useChatThread'
 import { useConversations } from '@/hooks/useConversations'
@@ -55,8 +55,10 @@ import { useConversations } from '@/hooks/useConversations'
  * distinguish user vs provider), so there's no ProviderOnlyNotice
  * gate here, just ProtectedRoute. The navbar still adapts: providers
  * get DashboardNavbar (their "Chats" link highlights this page), a
- * regular user gets the public Navbar with its "Messages" link (Day 7
- * addition — see components/home/Navbar.jsx).
+ * regular user gets UserNavbar with its "Messages" link (Day 9,
+ * Dev 1/3 post-launch fix — previously the public Navbar; see
+ * UserNavbar.jsx's docstring for why that reuse was an actual
+ * dead-link bug, not just a style mismatch).
  */
 function ChatsPage() {
   const { user } = useAuth()
@@ -100,7 +102,7 @@ function ChatsPage() {
     setSearchParams({})
   }
 
-  const NavbarComponent = user?.role === 'provider' ? DashboardNavbar : Navbar
+  const NavbarComponent = user?.role === 'provider' ? DashboardNavbar : UserNavbar
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[var(--color-bg)]">
