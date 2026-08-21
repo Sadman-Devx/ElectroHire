@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
-import { Briefcase, MapPin, Star, User as UserIcon } from 'lucide-react'
+import { Briefcase, MapPin, Star } from 'lucide-react'
 
+import { Avatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 
@@ -38,13 +39,7 @@ function ProviderCard({ provider }) {
   return (
     <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center">
       <div className="flex flex-1 items-center gap-4">
-        <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--color-bg)]">
-          {photo ? (
-            <img src={photo} alt={name} className="h-full w-full object-cover" />
-          ) : (
-            <UserIcon className="h-6 w-6 text-[var(--color-text-subtle)]" />
-          )}
-        </div>
+        <Avatar src={photo} alt={name} size="h-14 w-14" iconSize="h-6 w-6" />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">

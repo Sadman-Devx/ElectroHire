@@ -1,5 +1,4 @@
-import { User as UserIcon } from 'lucide-react'
-
+import { Avatar } from '@/components/ui/avatar'
 import { Card } from '@/components/ui/card'
 
 /**
@@ -22,13 +21,13 @@ function ProviderSummaryCard({ provider }) {
 
   return (
     <Card className="flex items-center gap-4 p-4">
-      <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--color-bg)] ring-2 ring-[var(--color-primary-tint)]">
-        {photo ? (
-          <img src={photo} alt={name} className="h-full w-full object-cover" />
-        ) : (
-          <UserIcon className="h-6 w-6 text-[var(--color-text-subtle)]" aria-hidden="true" />
-        )}
-      </div>
+      <Avatar
+        src={photo}
+        alt={name}
+        size="h-12 w-12"
+        iconSize="h-6 w-6"
+        className="ring-2 ring-[var(--color-primary-tint)]"
+      />
 
       <div className="min-w-0">
         <p className="truncate text-base font-semibold text-[var(--color-text)]">{name}</p>

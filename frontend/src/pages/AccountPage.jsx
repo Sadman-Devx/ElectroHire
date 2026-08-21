@@ -7,8 +7,8 @@ import { ContactHistorySection } from '@/components/account/ContactHistorySectio
 import { MyRatingsSection } from '@/components/account/MyRatingsSection'
 import { ProfileInfoCard } from '@/components/account/ProfileInfoCard'
 import { DashboardNavbar } from '@/components/dashboard/DashboardNavbar'
+import { UserNavbar } from '@/components/dashboard/UserNavbar'
 import { Footer } from '@/components/home/Footer'
-import { Navbar } from '@/components/home/Navbar'
 import { useAuth } from '@/context/useAuth'
 import { useContactHistory } from '@/hooks/useContactHistory'
 import { useMyProfile } from '@/hooks/useMyProfile'
@@ -34,11 +34,14 @@ import { useMyRatings } from '@/hooks/useMyRatings'
  * page the way one shared loading flag would.
  *
  * Navbar picked by role the same way ChatsPage.jsx already does
- * (DashboardNavbar for a provider, the public Navbar for a user) —
- * this page is titled "User Account Page" in the schedule, but
- * nothing stops a provider from having also contacted/rated another
- * provider, so it stays open to both roles rather than gating one out
- * with a ProviderOnlyNotice-style block.
+ * (DashboardNavbar for a provider, UserNavbar for a user — Day 9,
+ * Dev 1/3 post-launch fix, previously the public Navbar; see
+ * UserNavbar.jsx's docstring for why that reuse was an actual
+ * dead-link bug, not just a style mismatch) — this page is titled
+ * "User Account Page" in the schedule, but nothing stops a provider
+ * from having also contacted/rated another provider, so it stays open
+ * to both roles rather than gating one out with a
+ * ProviderOnlyNotice-style block.
  */
 function AccountPage() {
   const { user, logout } = useAuth()
@@ -46,7 +49,7 @@ function AccountPage() {
   const { ratings, isLoading: ratingsLoading, error: ratingsError } = useMyRatings()
   const { history, isLoading: historyLoading, error: historyError } = useContactHistory()
 
-  const NavbarComponent = user?.role === 'provider' ? DashboardNavbar : Navbar
+  const NavbarComponent = user?.role === 'provider' ? DashboardNavbar : UserNavbar
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg)]">
