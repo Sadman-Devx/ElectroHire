@@ -113,3 +113,53 @@ class AdminDashboardStatsTests(TestCase):
         self.client.logout()
         response = self.client.get(reverse("admin:index"))
         self.assertEqual(response.status_code, 302)
+
+
+# ════════════════════════════════════════════════════════════════
+# Dev 1, Day 10 — custom_exception_handler
+#
+# Bug: every hand-written view returns {"status": "error", "message":
+# "..."} via core.response.error_response, but exceptions DRF itself
+# raises before a view's code runs (missing/invalid auth, unsupported
+# method, ...) previously fell through to DRF's default handler
+# instead, replying with a bare {"detail": "..."} (or, for an invalid
+# JWT, {"detail": ..., "code": ..., "messages": [...]}) — a differently
+# shaped error body than literally everywhere else in the app. Found
+# during the Day 10 E2E audit while exercising the JWT refresh flow.
+# ════════════════════════════════════════════════════════════════
+class CustomExceptionHandlerTests(TestCase):
+    def setUp(self):
+        self.electrician = Category.objects.create(name="Electrician", icon="bulb")
+
+    def test_missing_auth_header_matches_contract_shape(self):
+        response = self.client.get(reverse("users:me"))
+
+        self.assertEqual(response.status_code, 401)
+        body = response.json()
+        self.assertEqual(body["status"], "error")
+        self.assertIn("message", body)
+        self.assertNotIn("detail", body)
+        self.assertEqual(
+            body["message"], "Authentication credentials were not provided."
+        )
+
+    def test_invalid_jwt_matches_contract_shape(self):
+        response = self.client.get(
+            reverse("users:me"), HTTP_AUTHORIZATION="Bearer garbage.not.a.token"
+        )
+
+        self.assertEqual(response.status_code, 401)
+        body = response.json()
+        self.assertEqual(body["status"], "error")
+        self.assertIn("message", body)
+        self.assertNotIn("detail", body)
+        self.assertNotIn("messages", body)
+
+    def test_unsupported_http_method_matches_contract_shape(self):
+        response = self.client.delete(reverse("categories:list"))
+
+        self.assertEqual(response.status_code, 405)
+        body = response.json()
+        self.assertEqual(body["status"], "error")
+        self.assertIn("message", body)
+        self.assertNotIn("detail", body)

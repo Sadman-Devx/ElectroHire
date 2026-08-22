@@ -158,10 +158,12 @@ describe('AccountPage', () => {
     renderAccount()
     await screen.findByRole('heading', { name: /my account/i })
 
-    expect(screen.getByRole('link', { name: /terms.{1,3}conditions/i })).toHaveAttribute(
-      'href',
-      '/terms'
-    )
+    // Day 10, Dev 1: the site Footer now also links to /terms (see
+    // Footer.jsx), so AccountPage legitimately renders it twice —
+    // once in its own settings list, once from the shared Footer.
+    const termsLinks = screen.getAllByRole('link', { name: /terms.{1,3}conditions/i })
+    expect(termsLinks.length).toBeGreaterThanOrEqual(1)
+    termsLinks.forEach((link) => expect(link).toHaveAttribute('href', '/terms'))
   })
 
   it('logs the user out and clears the stored session when Log out is clicked', async () => {
