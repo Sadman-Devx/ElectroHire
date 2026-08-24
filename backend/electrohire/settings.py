@@ -162,6 +162,13 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
+    # Day 10, Dev 1: normalizes framework-raised errors (invalid/expired
+    # JWT, missing auth header, wrong HTTP method, DRF's own 404/403,
+    # throttling, ...) into the same {"status": "error", "message": "..."}
+    # shape every hand-written view already returns via
+    # core.response.error_response — see core/exceptions.py's docstring
+    # for the bug this fixes.
+    'EXCEPTION_HANDLER': 'core.exceptions.custom_exception_handler',
 }
 
 # Media Files (Photo Upload-এর জন্য)

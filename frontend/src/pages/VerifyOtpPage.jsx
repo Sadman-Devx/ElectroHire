@@ -48,8 +48,18 @@ function VerifyOtpPage() {
       completeOtpVerification({ accessToken, refreshToken, role })
       // Day 5, Dev 3: a freshly-verified provider account has no
       // profile yet, so send them straight into Profile Setup instead
-      // of the generic Home page — everyone else's flow is unchanged.
-      const destination = role === 'provider' ? '/provider/profile-setup' : '/'
+      // of a dashboard that would just tell them to go set one up.
+      //
+      // Day 10, Dev 1 bug fix: a freshly-verified *user* account used
+      // to be sent to '/' instead of straight to '/dashboard'. That
+      // wasn't broken — HomePage already bounces any authenticated
+      // visitor to their dashboard (see its Day 9 docstring) — but it
+      // meant every normal signup took an extra, unnecessary redirect
+      // hop through the public marketing Home page first (a visible
+      // one-frame flash on a slow connection) for what is the far more
+      // common non-provider path. Send them straight there instead,
+      // same as LoginPage already does for a returning user.
+      const destination = role === 'provider' ? '/provider/profile-setup' : '/dashboard'
       navigate(destination, { replace: true })
     } catch (error) {
       setVerifyError(error.message || 'Invalid or expired OTP')
