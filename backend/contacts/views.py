@@ -37,9 +37,15 @@ class ContactCreateView(APIView):
     def post(self, request):
         serializer = ContactCreateSerializer(data=request.data)
         if not serializer.is_valid():
-            first_error = next(iter(serializer.errors.values()))[0]
+            # Day 10, Dev 2: was `next(iter(serializer.errors.values()))[0]`
+            # — only ever safe here because provider_id is a plain
+            # IntegerField that can't itself produce a nested error. Switched
+            # to the shared helper anyway so this view can't silently regress
+            # into the same raw-repr bug core.response.first_error_message
+            # was just fixed for (see its docstring) if this serializer ever
+            # grows a ListField/nested field later.
             return error_response(
-                message=str(first_error),
+                message=first_error_message(serializer.errors),
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
