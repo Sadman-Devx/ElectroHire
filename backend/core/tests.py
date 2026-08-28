@@ -1,11 +1,15 @@
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.test import APITestCase
 
 from categories.models import Category
 from contacts.models import ContactLog
 from providers.models import Provider, ProviderCategory
 from ratings.models import Rating
+
+from .response import first_error_message
 
 User = get_user_model()
 
@@ -163,3 +167,90 @@ class CustomExceptionHandlerTests(TestCase):
         self.assertEqual(body["status"], "error")
         self.assertIn("message", body)
         self.assertNotIn("detail", body)
+
+
+# ════════════════════════════════════════════════════════════════
+# Dev 2, Day 10 — core.response.first_error_message nested-error bug
+#
+# Bug: found during the Day 10 E2E provider-journey pass while sending
+# a malformed `categories` list to POST /api/providers/profile/. A
+# ListField(child=...) whose *child* fails validation nests its error
+# one level deeper than a plain field does -- {"categories": {0: [...
+# ]}} instead of {"categories": [...]} -- and the old
+# first_error_message only ever checked one list level deep, so it
+# fell into its `else: str(value)` branch for that dict-shaped case
+# and returned Python's raw repr of the whole nested structure
+# ("{0: [ErrorDetail(string='A valid integer is required.', ...)]}")
+# as the top-level "message" instead of a clean sentence -- the exact
+# thing this helper exists to prevent. Fixed by making it recurse
+# through arbitrary nesting instead of stopping after one level.
+# ════════════════════════════════════════════════════════════════
+class FirstErrorMessageNestedErrorTests(TestCase):
+    def test_plain_field_error_unaffected(self):
+        errors = {"email": ["Email already exists"]}
+        self.assertEqual(first_error_message(errors), "Email already exists")
+
+    def test_non_field_errors_unaffected(self):
+        errors = {"non_field_errors": ["Something went wrong."]}
+        self.assertEqual(first_error_message(errors), "Something went wrong.")
+
+    def test_nested_listfield_child_error_returns_clean_message(self):
+        # Shape DRF actually produces for
+        # ListField(child=IntegerField())'s child validation failure.
+        errors = {"categories": {0: ["A valid integer is required."]}}
+        self.assertEqual(
+            first_error_message(errors), "A valid integer is required."
+        )
+
+    def test_nested_error_never_returns_raw_repr(self):
+        errors = {"categories": {0: ["A valid integer is required."]}}
+        message = first_error_message(errors)
+        self.assertNotIn("ErrorDetail", message)
+        self.assertNotIn("{0:", message)
+
+    def test_deterministic_field_order_preserved_with_nesting(self):
+        # sorted(keys()) ordering must still hold once a field's own
+        # value can itself be a dict (not just a list) needing a sort key.
+        errors = {
+            "zzz_field": ["Should not be picked first"],
+            "area": {0: ["First alphabetically"]},
+        }
+        self.assertEqual(first_error_message(errors), "First alphabetically")
+
+    def test_empty_errors_dict_falls_back(self):
+        self.assertEqual(first_error_message({}), "Invalid data")
+
+
+class ProviderProfileSetupNestedValidationErrorTests(APITestCase):
+    """
+    Same bug as above, exercised through the real endpoint end-to-end
+    (not just the helper in isolation) — this is the exact request that
+    surfaced it during the Day 10 E2E pass.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="karim.nested@example.com",
+            password="strongpass123",
+            name="Karim Uddin",
+            phone="01712340099",
+            role=User.ROLE_PROVIDER,
+            verified=True,
+            is_active=True,
+        )
+        access_token = RefreshToken.for_user(self.user).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
+
+    def test_non_integer_category_item_returns_clean_message(self):
+        response = self.client.post(
+            reverse("providers:profile-setup"),
+            {"categories": ["not-a-number"], "area": "Dhanmondi", "experience": 5},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["status"], "error")
+        self.assertNotIn("ErrorDetail", response.data["message"])
+        self.assertNotIn("{0:", response.data["message"])
+        self.assertEqual(
+            response.data["message"], "A valid integer is required."
+        )

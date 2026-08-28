@@ -44,6 +44,8 @@ existed, so Django's normal 500 handling is unaffected.
 
 from rest_framework.views import exception_handler as drf_exception_handler
 
+from core.response import _first_leaf_message
+
 
 def custom_exception_handler(exc, context):
     response = drf_exception_handler(exc, context)
@@ -70,12 +72,15 @@ def custom_exception_handler(exc, context):
         if message is None:
             # Plain serializer-style {"field": ["error", ...]} bodies
             # DRF can also produce outside our own views — fall back
-            # to the same "first message, deterministic order" rule
-            # core.response.first_error_message already uses.
-            for key in sorted(data.keys()):
-                value = data[key]
-                if isinstance(value, (list, tuple)) and value:
-                    message = str(value[0])
+            # to the same "first leaf message, deterministic order,
+            # arbitrary nesting" rule core.response.first_error_message
+            # uses (Day 10, Dev 2 fix — see that function's docstring
+            # for the nested-ListField bug this also guards against
+            # here, at the framework boundary).
+            for key in sorted(data.keys(), key=str):
+                leaf = _first_leaf_message(data[key])
+                if leaf:
+                    message = leaf
                     break
     elif isinstance(data, list) and data:
         message = str(data[0])
