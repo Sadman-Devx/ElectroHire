@@ -1,12 +1,15 @@
 import { Link, useParams } from 'react-router-dom'
 import { AlertCircle, ChevronRight, SearchX } from 'lucide-react'
 
+import { DashboardNavbar } from '@/components/dashboard/DashboardNavbar'
+import { UserNavbar } from '@/components/dashboard/UserNavbar'
 import { Footer } from '@/components/home/Footer'
 import { Navbar } from '@/components/home/Navbar'
 import { ProviderAbout } from '@/components/providers/detail/ProviderAbout'
 import { ProviderProfileHeader } from '@/components/providers/detail/ProviderProfileHeader'
 import { ProviderReviewsPreview } from '@/components/providers/detail/ProviderReviewsPreview'
 import { StickyContactCard } from '@/components/providers/detail/StickyContactCard'
+import { useAuth } from '@/context/useAuth'
 import { useProviderDetail } from '@/hooks/useProviderDetail'
 
 /**
@@ -20,6 +23,13 @@ import { useProviderDetail } from '@/hooks/useProviderDetail'
  *
  * Route: /providers/:id — matches the link ProviderCard.jsx already
  * builds (Day 5) and GET /api/providers/{id}/ (Dev 2, Day 4).
+ *
+ * Day 10, Dev 1 bug fix: this page always rendered the public
+ * marketing Navbar regardless of auth state — see ProvidersPage.jsx's
+ * Day 10 note (same fix, same reasoning) and UserNavbar.jsx's
+ * docstring for why that's a dead-link + "extra nav" bug, not just a
+ * style mismatch. This route is deliberately public (see App.jsx), so
+ * the anonymous-visitor branch is still needed here.
  */
 
 function ProviderDetailSkeleton() {
@@ -74,10 +84,16 @@ function ProviderDetailError({ message }) {
 function ProviderDetailPage() {
   const { id } = useParams()
   const { provider, isLoading, error, notFound } = useProviderDetail(id)
+  const { isAuthenticated, user } = useAuth()
+  const NavbarComponent = !isAuthenticated
+    ? Navbar
+    : user?.role === 'provider'
+      ? DashboardNavbar
+      : UserNavbar
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg)]">
-      <Navbar />
+      <NavbarComponent />
 
       <main className="flex-1">
         <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
