@@ -75,6 +75,10 @@ function loginAsUser() {
   saveSession({ accessToken: 'token-abc', refreshToken: 'refresh-abc', role: 'user', name: 'Mahmudul' })
 }
 
+function loginAsProvider() {
+  saveSession({ accessToken: 'token-def', refreshToken: 'refresh-def', role: 'provider', name: 'Karim' })
+}
+
 beforeEach(() => {
   localStorage.clear()
   getProviderDetail.mockReset()
@@ -376,5 +380,44 @@ describe('ProviderDetailPage', () => {
 
     expect(await screen.findByText(/your message has been sent to karim uddin/i)).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /open the conversation/i })).not.toBeInTheDocument()
+  })
+
+  // Day 10, Dev 1 bug fix: this page always rendered the public
+  // marketing Navbar regardless of auth state — its "#anchor" links
+  // are dead off HomePage, and it piles a Dashboard/Messages/Account/
+  // Log out cluster on top for a logged-in visitor too (see
+  // UserNavbar.jsx's docstring, and TermsPage.jsx's identical fix).
+  // Browsing is deliberately public, so unlike a protected page this
+  // one still needs the public Navbar for an anonymous visitor.
+  describe('navbar by auth state (Day 10 fix)', () => {
+    it('shows the public Navbar for an anonymous visitor', async () => {
+      getProviderDetail.mockResolvedValue(PROVIDER)
+      renderDetail()
+      await screen.findByRole('heading', { name: 'Karim Uddin' })
+
+      expect(screen.getByRole('link', { name: /log in/i })).toBeInTheDocument()
+      expect(screen.getByText(/how it works/i)).toBeInTheDocument()
+    })
+
+    it('shows UserNavbar, not the public Navbar, for a logged-in user', async () => {
+      loginAsUser()
+      getProviderDetail.mockResolvedValue(PROVIDER)
+      renderDetail()
+      await screen.findByRole('heading', { name: 'Karim Uddin' })
+
+      expect(screen.getByRole('link', { name: /^messages$/i })).toHaveAttribute('href', '/chats')
+      expect(screen.queryByText(/how it works/i)).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: /log in/i })).not.toBeInTheDocument()
+    })
+
+    it('shows DashboardNavbar, not the public Navbar, for a logged-in provider', async () => {
+      loginAsProvider()
+      getProviderDetail.mockResolvedValue(PROVIDER)
+      renderDetail()
+      await screen.findByRole('heading', { name: 'Karim Uddin' })
+
+      expect(screen.getByRole('link', { name: /^reviews$/i })).toHaveAttribute('href', '/provider/reviews')
+      expect(screen.queryByText(/how it works/i)).not.toBeInTheDocument()
+    })
   })
 })
