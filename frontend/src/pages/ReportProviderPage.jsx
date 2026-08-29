@@ -6,10 +6,12 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
+import { DashboardNavbar } from '@/components/dashboard/DashboardNavbar'
+import { UserNavbar } from '@/components/dashboard/UserNavbar'
 import { Footer } from '@/components/home/Footer'
-import { Navbar } from '@/components/home/Navbar'
 import { ProviderSummaryCard } from '@/components/providers/ProviderSummaryCard'
 import { ReasonList } from '@/components/providers/report/ReasonList'
+import { useAuth } from '@/context/useAuth'
 import { useProviderDetail } from '@/hooks/useProviderDetail'
 import { useSubmitReport } from '@/hooks/useSubmitReport'
 
@@ -37,6 +39,15 @@ import { useSubmitReport } from '@/hooks/useSubmitReport'
  * card + loading/notFound/error handling RateProviderPage (also
  * Day 8) uses, so both "act on a specific provider" pages behave
  * identically for a bad/missing :id.
+ *
+ * Day 10, Dev 1 bug fix: this page always rendered the public
+ * marketing Navbar, which is a dead-link + "extra nav" bug for a
+ * logged-in visitor (see UserNavbar.jsx's docstring) — and this route
+ * is always protected (see App.jsx), so every visitor here is
+ * logged-in already. Picks DashboardNavbar/UserNavbar by role instead,
+ * same two-way convention AccountPage.jsx already uses for its own
+ * fully-protected route; no public-Navbar branch is needed since an
+ * anonymous visitor can never reach this component.
  */
 
 function ReportProviderSkeleton() {
@@ -188,6 +199,8 @@ function ReportProviderPage() {
   const { id } = useParams()
   const { provider, isLoading, error: loadError, notFound } = useProviderDetail(id)
   const { submit, isSubmitting, error: submitError, isSuccess, message } = useSubmitReport()
+  const { user } = useAuth()
+  const NavbarComponent = user?.role === 'provider' ? DashboardNavbar : UserNavbar
 
   function handleSubmit({ reason, details }) {
     submit({ reportedId: provider.id, reportedType: 'provider', reason, details })
@@ -195,7 +208,7 @@ function ReportProviderPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg)]">
-      <Navbar />
+      <NavbarComponent />
 
       <main className="flex-1">
         <div className="mx-auto max-w-xl px-4 py-8 sm:px-6">
