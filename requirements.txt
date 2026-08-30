@@ -9,3 +9,6 @@ PyJWT==2.13.0
 python-dotenv==1.2.2
 sqlparse==0.5.5
 tzdata==2026.3
+channels==4.3.2
+daphne==4.2.3
+channels_redis==4.3.0

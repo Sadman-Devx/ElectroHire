@@ -15,6 +15,12 @@ import { RateProviderBanner } from './RateProviderBanner'
  * MessageComposer's draft text, RateProviderBanner's dismissed flag —
  * resets cleanly when the person switches threads, instead of a
  * half-typed reply or a dismissed banner leaking into the next chat.
+ *
+ * Real-time chat pass: `connectionStatus`, `isOtherTyping`,
+ * `onTypingChange`, and `onRetryMessage` are threaded straight through
+ * to ChatWindowHeader / MessageThread / MessageComposer from
+ * useChatThread() (see ChatsPage.jsx) — this component stays a pure
+ * layout/wiring shell, no socket logic of its own.
  */
 function ChatWindow({
   conversation,
@@ -24,6 +30,10 @@ function ChatWindow({
   onSend,
   isSending,
   sendError,
+  connectionStatus,
+  isOtherTyping,
+  onTypingChange,
+  onRetryMessage,
   onBack,
   className,
 }) {
@@ -37,7 +47,7 @@ function ChatWindow({
 
   return (
     <div className={cn('min-h-0 flex-1 flex-col', className)}>
-      <ChatWindowHeader conversation={conversation} onBack={onBack} />
+      <ChatWindowHeader conversation={conversation} connectionStatus={connectionStatus} onBack={onBack} />
 
       {conversation.other_user_role === 'provider' ? (
         <RateProviderBanner
@@ -49,8 +59,11 @@ function ChatWindow({
       <MessageThread
         messages={messages}
         otherUserId={conversation.other_user_id}
+        otherUserName={conversation.other_user_name}
         isLoading={isThreadLoading}
         error={threadError}
+        isOtherTyping={isOtherTyping}
+        onRetry={onRetryMessage}
       />
 
       {sendError ? (
@@ -59,7 +72,12 @@ function ChatWindow({
         </p>
       ) : null}
 
-      <MessageComposer onSend={onSend} isSending={isSending} isDisabled={isThreadLoading} />
+      <MessageComposer
+        onSend={onSend}
+        isSending={isSending}
+        isDisabled={isThreadLoading}
+        onTypingChange={onTypingChange}
+      />
     </div>
   )
 }
