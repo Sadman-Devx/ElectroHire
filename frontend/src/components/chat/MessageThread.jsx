@@ -4,6 +4,7 @@ import { AlertCircle, MessageCircle } from 'lucide-react'
 import { formatMessageDayLabel } from '@/lib/formatChatTime'
 
 import { MessageBubble } from './MessageBubble'
+import { TypingIndicator } from './TypingIndicator'
 
 function dayKeyOf(isoString) {
   const date = new Date(isoString)
@@ -51,7 +52,7 @@ const NEAR_BOTTOM_THRESHOLD_PX = 150
  * MessageBubble.jsx's comment for why that's the robust comparison
  * instead of needing to know the signed-in user's own id.
  */
-function MessageThread({ messages, otherUserId, isLoading, error }) {
+function MessageThread({ messages, otherUserId, otherUserName, isLoading, error, isOtherTyping, onRetry }) {
   const containerRef = useRef(null)
   const bottomRef = useRef(null)
   const previousMessageCountRef = useRef(0)
@@ -123,6 +124,11 @@ function MessageThread({ messages, otherUserId, isLoading, error }) {
         <p className="text-sm text-[var(--color-text-muted)]">
           No messages yet — say hello to start the conversation.
         </p>
+        {isOtherTyping ? (
+          <div className="w-full px-4 pt-2">
+            <TypingIndicator name={otherUserName} />
+          </div>
+        ) : null}
       </div>
     )
   }
@@ -148,11 +154,13 @@ function MessageThread({ messages, otherUserId, isLoading, error }) {
                   key={message.id}
                   message={message}
                   isMine={message.sender_id !== otherUserId}
+                  onRetry={onRetry}
                 />
               ))}
             </div>
           </div>
         ))}
+        {isOtherTyping ? <TypingIndicator name={otherUserName} /> : null}
         <div ref={bottomRef} />
       </div>
     </div>

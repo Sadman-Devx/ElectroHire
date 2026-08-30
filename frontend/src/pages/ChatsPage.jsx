@@ -28,7 +28,9 @@ import { useConversations } from '@/hooks/useConversations'
  * DATA: backed by services/chatService.js — the real
  * GET /api/contacts/conversations/ and GET/POST
  * /api/contacts/messages/{provider_id}/ endpoints Dev 1 built Day 7.
- * useConversations() and useChatThread() both poll every 5s.
+ * useConversations() polls every 5s; useChatThread() is now real-time
+ * via WebSocket (see useChatThread.js), with a 20s poll only as a
+ * fallback safety net.
  *
  * useChatThread() takes the whole `selectedConversation` (not just
  * its id) plus `user?.role`, because the real endpoint needs
@@ -89,6 +91,10 @@ function ChatsPage() {
     send,
     isSending,
     sendError,
+    connectionStatus,
+    isOtherTyping,
+    notifyTyping,
+    retryFailedMessage,
   } = useChatThread(selectedConversation, user?.role, {
     onThreadOpened: markThreadRead,
     onMessageSent: applySentMessage,
@@ -133,6 +139,10 @@ function ChatsPage() {
             onSend={send}
             isSending={isSending}
             sendError={sendError}
+            connectionStatus={connectionStatus}
+            isOtherTyping={isOtherTyping}
+            onTypingChange={notifyTyping}
+            onRetryMessage={retryFailedMessage}
             onBack={handleBack}
             className={selectedOtherUserId ? 'flex' : 'hidden lg:flex'}
           />
