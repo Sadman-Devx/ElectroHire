@@ -1,4 +1,4 @@
-from django.db.models import Avg, Count, Q
+from django.db.models import Avg, Count
 from rest_framework.generics import ListAPIView
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -150,6 +150,13 @@ class ProviderDashboardView(APIView):
     a provider's public ratings list) — instead of inventing a third
     shape for the same data, so the frontend can reuse whatever
     components already render those two lists.
+
+    recent_messages is scoped to unread, incoming, one-per-customer
+    messages (see the query comment inside get()) rather than simply
+    "last 3 Message rows" — a preview of things the provider hasn't
+    seen yet, not a raw activity log. It empties out on its own once
+    the provider reads a thread; there's no separate mark-as-seen
+    endpoint for this list.
     """
 
     permission_classes = [IsAuthenticated]
@@ -173,16 +180,39 @@ class ProviderDashboardView(APIView):
             else 0.0
         )
 
-        # A provider's own user account can appear as either party on a
-        # Message row (customer -> provider, or provider replying), so
-        # both sides are pulled here — same sender-or-receiver shape
-        # ConversationListView (contacts/views.py) already uses for its
-        # own "which threads is this user part of" lookup.
-        recent_messages = (
-            Message.objects.filter(Q(sender=request.user) | Q(receiver=request.user))
+        # Recent Messages only shows conversations still waiting on the
+        # provider's attention:
+        #   - receiver=request.user only -- excludes the provider's own
+        #     outgoing replies. A message the provider just sent isn't
+        #     something *they* need to notice, but the old
+        #     sender-or-receiver query pulled those in too.
+        #   - is_read=False only -- opening the thread (GET
+        #     /api/contacts/messages/{provider_id}/, contacts/views.py's
+        #     MessageListCreateView) already marks incoming messages
+        #     read, so a conversation drops out of this list
+        #     automatically the moment the provider actually reads it.
+        #     No separate "dismiss" action needed.
+        #   - one row per sender (customer), not per message -- several
+        #     unread messages from the same customer collapse into a
+        #     single row showing only their latest one, so a customer
+        #     sending 3 messages in a row doesn't produce 3 rows here.
+        #     (SQLite has no SELECT DISTINCT ON, so this dedupes in
+        #     Python instead of the DB -- fine at this scale, since it's
+        #     already scoped to one provider's unread messages only.)
+        unread_incoming = (
+            Message.objects.filter(receiver=request.user, is_read=False)
             .select_related("sender")
-            .order_by("-created_at")[:3]
+            .order_by("-created_at")
         )
+        recent_messages = []
+        seen_sender_ids = set()
+        for message in unread_incoming:
+            if message.sender_id in seen_sender_ids:
+                continue
+            seen_sender_ids.add(message.sender_id)
+            recent_messages.append(message)
+            if len(recent_messages) == 3:
+                break
 
         recent_reviews = (
             Rating.objects.filter(provider=provider)
