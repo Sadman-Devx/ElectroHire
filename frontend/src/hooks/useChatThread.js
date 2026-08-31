@@ -150,6 +150,12 @@ export function useChatThread(conversation, viewerRole, { onThreadOpened, onMess
 
     return () => {
       isMounted = false
+      // Same StrictMode double-invoke fix as useConversations.js — see
+      // that file's cleanup comment for the full mechanics. Without
+      // this reset, opening a thread in dev mode can strand isLoading
+      // at `true` forever (the composer/thread would never leave its
+      // loading state even though messages did load internally).
+      isFetchingRef.current = false
       window.clearInterval(intervalId)
       socket.close()
       socketRef.current = null

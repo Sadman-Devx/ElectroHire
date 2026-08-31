@@ -66,6 +66,25 @@ export function useConversations() {
 
     return () => {
       isMounted = false
+      // Also release the in-flight guard, not just the isMounted flag.
+      // Without this, React 18/19 StrictMode's dev-only mount → cleanup
+      // → mount-again cycle produces a permanent stuck-loading bug:
+      // the first ("trial") effect's loadConversations() is already
+      // mid-flight when cleanup runs, so isFetchingRef.current is still
+      // true when the second ("real") effect calls loadConversations()
+      // — that call bails out immediately via the `if (isFetchingRef
+      // .current) return` guard above and never fetches anything. Then
+      // when the trial effect's own request eventually resolves, its
+      // closure's `isMounted` is already false, so its `setIsLoading
+      // (false)` / `setConversations(data)` calls are both skipped too
+      // (by design, to avoid setting state for a torn-down effect).
+      // Net result: isLoading never leaves `true`, so
+      // ConversationListPanel shows its skeleton forever, even once a
+      // later silent poll quietly fills `conversations` with real data
+      // behind it. Resetting the ref here lets the second effect's own
+      // call actually run (production builds never double-invoke
+      // effects, so this is a no-op cleanup path there).
+      isFetchingRef.current = false
       window.clearInterval(intervalId)
     }
   }, [])
