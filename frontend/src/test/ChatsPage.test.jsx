@@ -327,7 +327,14 @@ describe('ChatsPage', () => {
     expect(screen.getByPlaceholderText(/type a message/i)).toHaveValue('')
   })
 
-  it('polls both the conversation list and the open thread every 5 seconds', async () => {
+  it('polls the conversation list every 5 seconds and the open thread on its 20 second fallback', async () => {
+    // Real-time chat pass (useChatThread.js): the open thread is kept
+    // live via WebSocket, with a 20s poll only as a fallback safety
+    // net -- no real socket delivers anything in this test (jsdom's
+    // WebSocket never actually connects to a server), so the fallback
+    // poll is the only thing that can refresh `messages` here. The
+    // conversation list (useConversations.js) is unrelated and still
+    // polls every 5s regardless of the thread's own real-time layer.
     loginAsUser()
     listConversations.mockResolvedValue(CONVERSATIONS)
     getMessageThread.mockResolvedValue(KARIM_THREAD)
@@ -343,15 +350,20 @@ describe('ChatsPage', () => {
       await vi.advanceTimersByTimeAsync(5000)
     })
 
+    // Conversation list ticks on its own 5s cadence...
     expect(listConversations).toHaveBeenCalledTimes(2)
-    expect(getMessageThread).toHaveBeenCalledTimes(2)
+    // ...but 5s isn't enough to reach the thread's 20s fallback yet.
+    expect(getMessageThread).toHaveBeenCalledTimes(1)
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(15000)
     })
 
-    expect(listConversations).toHaveBeenCalledTimes(3)
-    expect(getMessageThread).toHaveBeenCalledTimes(3)
+    // Now at t=20s: the conversation list has ticked five times total
+    // (initial load at t=0, then every 5s: 5s/10s/15s/20s), and the
+    // thread's 20s fallback has fired once.
+    expect(listConversations).toHaveBeenCalledTimes(5)
+    expect(getMessageThread).toHaveBeenCalledTimes(2)
   })
 
   it('auto-scrolls to newest on first load, but a background poll does not yank a reader away from scrolled-up history', async () => {
@@ -388,8 +400,10 @@ describe('ChatsPage', () => {
     ]
     getMessageThread.mockResolvedValue(longerThread)
 
+    // 20s, not 5s: the thread only refreshes here via its 20s fallback
+    // poll (no real WebSocket delivers anything in this test).
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(20000)
     })
     await screen.findByText('Naki asben na?')
 
@@ -416,7 +430,7 @@ describe('ChatsPage', () => {
     ])
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(20000)
     })
     await screen.findByText('Ok, kal dekha hobe.')
 
