@@ -302,6 +302,72 @@ describe('ChatsPage', () => {
     expect(getMessageThread).toHaveBeenCalledWith({ providerId: 1, withUserId: undefined })
   })
 
+  // Follow-up after Day 9: StickyContactCard's "Send Message" no
+  // longer composes on the provider profile page — it navigates
+  // straight here instead, carrying enough in the URL for this page
+  // to build a conversation "shell" for a provider with no prior
+  // messages (not one of the real entries GET /api/contacts/conversations/
+  // would ever return — see this file's doc comment). These three
+  // tests cover that shell directly, independent of StickyContactCard.
+  describe('arriving with ?providerId=&name= for a provider with no prior conversation', () => {
+    it('renders a ready-to-send conversation shell without waiting on the conversations list', async () => {
+      loginAsUser()
+      listConversations.mockResolvedValue(CONVERSATIONS) // neither entry is other_user_id 99
+      getMessageThread.mockResolvedValue([])
+
+      renderChats('/chats?with=99&providerId=9&name=Salam+Hossain')
+
+      expect(await screen.findByText('Salam Hossain')).toBeInTheDocument()
+      expect(
+        await screen.findByText(/no messages yet.*say hello to start the conversation/i)
+      ).toBeInTheDocument()
+      expect(screen.getByPlaceholderText(/type a message/i)).toBeEnabled()
+      expect(getMessageThread).toHaveBeenCalledWith({ providerId: 9, withUserId: undefined })
+    })
+
+    it('sends the first message through the shell like any other thread', async () => {
+      loginAsUser()
+      listConversations.mockResolvedValue(CONVERSATIONS)
+      getMessageThread.mockResolvedValue([])
+      sendMessage.mockResolvedValue({
+        id: 5,
+        content: 'Assalamualaikum, AC repair lagbe',
+        created_at: '2025-01-16T09:00:00.000Z',
+      })
+      const user = userEvent.setup()
+
+      renderChats('/chats?with=99&providerId=9&name=Salam+Hossain')
+      await screen.findByText('Salam Hossain')
+
+      await user.type(screen.getByPlaceholderText(/type a message/i), 'Assalamualaikum, AC repair lagbe')
+      await user.click(screen.getByRole('button', { name: /^send$/i }))
+
+      expect(sendMessage).toHaveBeenCalledWith({
+        providerId: 9,
+        withUserId: undefined,
+        content: 'Assalamualaikum, AC repair lagbe',
+      })
+      expect(await screen.findByText('Assalamualaikum, AC repair lagbe')).toBeInTheDocument()
+    })
+
+    it('prefers the real conversation over the shell once one already exists for that provider', async () => {
+      // Customer clicks "Send Message" again for someone they've
+      // already messaged before — the real entry (with its real
+      // history) must win over the URL-built placeholder.
+      loginAsUser()
+      listConversations.mockResolvedValue(CONVERSATIONS)
+      getMessageThread.mockResolvedValue(KARIM_THREAD)
+
+      renderChats('/chats?with=1&providerId=1&name=Karim+Uddin')
+
+      expect(await screen.findByText('Ki kaj lagbe?')).toBeInTheDocument()
+      expect(screen.getByText('AC thanda hocche na')).toBeInTheDocument()
+      expect(
+        screen.queryByText(/no messages yet.*say hello to start the conversation/i)
+      ).not.toBeInTheDocument()
+    })
+  })
+
   it('resets the composer draft and dismissed banner when switching threads', async () => {
     loginAsUser()
     listConversations.mockResolvedValue(CONVERSATIONS)

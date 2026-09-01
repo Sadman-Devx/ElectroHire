@@ -40,6 +40,24 @@ import { useConversations } from '@/hooks/useConversations'
  * deviation from the Day 7 hand-off note's "hooks won't need to
  * change" expectation.
  *
+ * `selectedConversation` isn't always one of the *real* entries from
+ * GET /api/contacts/conversations/ — that list only contains threads
+ * with at least one Message row already in them (see contacts/views.py
+ * ConversationListView), so it can't represent "customer clicked Send
+ * Message on a provider they've never messaged before" (added as part
+ * of the same follow-up that removed StickyContactCard's inline
+ * composer — see that component's own doc comment for the full
+ * reasoning). For that case, StickyContactCard links here with
+ * `?with=<user_id>&providerId=<id>&name=<name>` instead of bare
+ * `?with=`; when no real conversation matches, those three params are
+ * enough to build a conversation shell locally — same shape as a real
+ * entry, just with `last_message`/`unread_count` empty — so ChatWindow
+ * renders its header and a ready composer immediately, with no
+ * network round trip before the customer can start typing. The moment
+ * they send, a real Message row exists, so the next 5s conversation
+ * list poll (useConversations.js) naturally replaces this shell with
+ * the real entry — nothing here has to reconcile the two by hand.
+ *
  * ChatWindow is keyed by `selectedOtherUserId` so switching threads
  * remounts it — MessageComposer's draft text and RateProviderBanner's
  * dismissed flag reset per conversation instead of leaking into the
@@ -70,6 +88,10 @@ function ChatsPage() {
   const parsedWith = rawWith ? Number(rawWith) : null
   const selectedOtherUserId = Number.isFinite(parsedWith) ? parsedWith : null
 
+  const rawProviderId = searchParams.get('providerId')
+  const parsedProviderId = rawProviderId ? Number(rawProviderId) : null
+  const pendingProviderName = searchParams.get('name')
+
   const {
     conversations,
     visibleConversations,
@@ -81,8 +103,26 @@ function ChatsPage() {
     applySentMessage,
   } = useConversations()
 
-  const selectedConversation =
+  const existingConversation =
     conversations.find((conversation) => conversation.other_user_id === selectedOtherUserId) ?? null
+
+  // Not a real conversation yet (see this file's doc comment above) —
+  // only built when there's genuinely nothing to find above and
+  // StickyContactCard supplied enough to construct one locally.
+  const pendingConversation =
+    !existingConversation && selectedOtherUserId && parsedProviderId && pendingProviderName
+      ? {
+          provider_id: parsedProviderId,
+          other_user_id: selectedOtherUserId,
+          other_user_name: pendingProviderName,
+          other_user_role: 'provider',
+          last_message: null,
+          last_message_at: null,
+          unread_count: 0,
+        }
+      : null
+
+  const selectedConversation = existingConversation ?? pendingConversation
 
   const {
     messages,

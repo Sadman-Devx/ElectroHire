@@ -5,52 +5,67 @@ import { MemoryRouter } from 'react-router-dom'
 
 import App from '@/App'
 import { AuthProvider } from '@/context/AuthContext'
-import { getCategories } from '@/services/categoryService'
-import { getProviders } from '@/services/providerService'
 import { saveSession } from '@/services/tokenStorage'
+import { getProviderDetail } from '@/services/providerService'
+import { createContact, checkContactEligibility } from '@/services/contactService'
+import { getMessageThread, listConversations } from '@/services/chatService'
 
 // Both services make real axios/HTTP calls in production; mocking
-// them lets us drive ProvidersPage -> useCategories/useProviders ->
-// service layer end-to-end while fully controlling the "backend".
-vi.mock('@/services/categoryService', () => ({
-  getCategories: vi.fn(),
-}))
-
+// them lets us drive ProviderDetailPage -> useProviderDetail /
+// useContactProvider -> service layer end-to-end while fully
+// controlling the "backend" — same approach ProvidersPage.test.jsx
+// already uses for getProviders/getCategories.
 vi.mock('@/services/providerService', () => ({
-  getProviders: vi.fn(),
+  getProviderDetail: vi.fn(),
 }))
 
-const CATEGORIES = [
-  { id: 1, name: 'Electrician', icon: 'bulb' },
-  { id: 2, name: 'Plumber', icon: 'pipe' },
-]
+vi.mock('@/services/contactService', () => ({
+  createContact: vi.fn(),
+  // Day 9, Dev 1: useContactEligibility() calls this on mount whenever
+  // the visitor is authenticated. Defaulted to resolve `has_contacted:
+  // true` in beforeEach below so the many pre-existing tests that
+  // login but don't care about rating eligibility keep seeing the
+  // real "Rate this provider" link rather than the disabled state —
+  // tests that specifically care about ineligibility override this.
+  checkContactEligibility: vi.fn(),
+}))
 
-const PROVIDERS = [
-  {
-    id: 1,
-    name: 'Karim Uddin',
-    area: 'Dhanmondi',
-    experience: 8,
-    photo: null,
-    categories: ['Electrician', 'AC Repair'],
-    avg_rating: 4.8,
-    review_count: 24,
-    status: 'active',
-  },
-  {
-    id: 2,
-    name: 'Rahim Mia',
-    area: 'Dhanmondi',
-    experience: 5,
-    photo: null,
-    categories: ['Electrician'],
-    avg_rating: 0,
-    review_count: 0,
-    status: 'active',
-  },
-]
+// "Send Message" now navigates straight to ChatsPage instead of
+// composing here (see StickyContactCard.jsx's doc comment) — only the
+// one test that actually follows that navigation needs these mocked
+// (same shape ChatsPage.test.jsx uses), so every other test here just
+// leaves them unset.
+vi.mock('@/services/chatService', () => ({
+  listConversations: vi.fn(),
+  getMessageThread: vi.fn(),
+  sendMessage: vi.fn(),
+}))
 
-function renderProviders(initialPath = '/providers') {
+const PROVIDER = {
+  id: 1,
+  user_id: 10,
+  name: 'Karim Uddin',
+  area: 'Dhanmondi',
+  experience: 8,
+  description: 'Professional electrician with 8 years of experience.',
+  photo: null,
+  categories: ['Electrician', 'AC Repair'],
+  avg_rating: 4.8,
+  review_count: 24,
+  member_since: '2024-01-15',
+}
+
+const NEW_PROVIDER = {
+  ...PROVIDER,
+  id: 2,
+  user_id: 20,
+  name: 'Rahim Mia',
+  avg_rating: 0,
+  review_count: 0,
+  description: '',
+}
+
+function renderDetail(initialPath = '/providers/1') {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <AuthProvider>
@@ -60,11 +75,24 @@ function renderProviders(initialPath = '/providers') {
   )
 }
 
+function loginAsUser() {
+  saveSession({ accessToken: 'token-abc', refreshToken: 'refresh-abc', role: 'user', name: 'Mahmudul' })
+}
+
+function loginAsProvider() {
+  saveSession({ accessToken: 'token-def', refreshToken: 'refresh-def', role: 'provider', name: 'Karim' })
+}
+
 beforeEach(() => {
   localStorage.clear()
-  getCategories.mockReset()
-  getProviders.mockReset()
-  getCategories.mockResolvedValue(CATEGORIES)
+  getProviderDetail.mockReset()
+  createContact.mockReset()
+  checkContactEligibility.mockReset()
+  listConversations.mockReset()
+  getMessageThread.mockReset()
+  // Default: eligible. Individual tests that specifically exercise the
+  // disabled/ineligible state override this per-test.
+  checkContactEligibility.mockResolvedValue({ has_contacted: true, provider_id: 1 })
 })
 
 afterEach(() => {
@@ -72,126 +100,257 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('ProvidersPage', () => {
-  it('loads providers for the filters already present in the URL', async () => {
-    getProviders.mockResolvedValue({ data: PROVIDERS, count: 2 })
-
-    renderProviders('/providers?category=1&area=Dhanmondi')
-
-    expect(await screen.findByText('Karim Uddin')).toBeInTheDocument()
-    expect(screen.getByText('Rahim Mia')).toBeInTheDocument()
-
-    expect(getProviders).toHaveBeenCalledWith({ category: '1', area: 'Dhanmondi', sort: '' })
-    // Breadcrumb + result count reflect the same filters. The count
-    // lives in its own <span> next to the rest of the sentence, so
-    // this asserts on the paragraph's combined textContent rather
-    // than a single (necessarily fragmented) text node.
-    expect(screen.getByText('Electrician in Dhanmondi')).toBeInTheDocument()
-    expect(screen.getByTestId('results-summary').textContent).toMatch(
-      /2\s*providers found in Dhanmondi for Electrician/i
-    )
-  })
-
-  it('shows a loading state before results arrive', async () => {
-    let resolveProviders
-    getProviders.mockImplementation(
+describe('ProviderDetailPage', () => {
+  it('shows a loading state before the provider arrives', async () => {
+    let resolveDetail
+    getProviderDetail.mockImplementation(
       () =>
         new Promise((resolve) => {
-          resolveProviders = resolve
+          resolveDetail = resolve
         })
     )
 
-    renderProviders()
+    renderDetail()
 
-    expect(screen.getByText(/searching providers/i)).toBeInTheDocument()
-
-    resolveProviders({ data: PROVIDERS, count: 2 })
-    expect(await screen.findByText('Karim Uddin')).toBeInTheDocument()
+    expect(document.querySelector('[aria-busy="true"]')).toBeInTheDocument()
+    resolveDetail(PROVIDER)
+    expect(await screen.findByRole('heading', { name: 'Karim Uddin' })).toBeInTheDocument()
   })
 
-  it('shows a "no providers found" empty state when the list is empty', async () => {
-    getProviders.mockResolvedValue({ data: [], count: 0 })
+  it('renders the profile header, categories, rating and about section from the API', async () => {
+    getProviderDetail.mockResolvedValue(PROVIDER)
 
-    renderProviders('/providers?area=Nowhereville')
+    renderDetail()
 
-    expect(await screen.findByText(/no providers found/i)).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Karim Uddin' })).toBeInTheDocument()
+    expect(screen.getByText('Electrician')).toBeInTheDocument()
+    expect(screen.getByText('AC Repair')).toBeInTheDocument()
+    expect(screen.getByText('4.8')).toBeInTheDocument()
+    expect(screen.getByText('(24 reviews)')).toBeInTheDocument()
+    expect(screen.getByText('Dhanmondi')).toBeInTheDocument()
+    expect(screen.getByText('8 yrs experience')).toBeInTheDocument()
+    expect(
+      screen.getByText('Professional electrician with 8 years of experience.')
+    ).toBeInTheDocument()
+
+    expect(getProviderDetail).toHaveBeenCalledWith('1')
   })
 
-  it('shows the backend error message when the request fails', async () => {
-    const error = new Error('Request failed')
-    error.response = { data: { message: 'Could not load providers. Please try again.' } }
-    getProviders.mockRejectedValue(error)
+  it('shows "New" instead of a rating when the provider has no reviews yet', async () => {
+    getProviderDetail.mockResolvedValue(NEW_PROVIDER)
 
-    renderProviders()
+    renderDetail('/providers/2')
 
-    expect(await screen.findByText(/could not load providers/i)).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Rahim Mia' })).toBeInTheDocument()
+    expect(screen.getByText('New')).toBeInTheDocument()
   })
 
-  it('does not refetch while typing — only applies filters on Apply click', async () => {
-    getProviders.mockResolvedValue({ data: PROVIDERS, count: 2 })
-    const user = userEvent.setup()
+  it('shows the empty-description fallback when the provider has no about text', async () => {
+    getProviderDetail.mockResolvedValue(NEW_PROVIDER)
 
-    renderProviders('/providers')
-    await screen.findByText('Karim Uddin')
-    expect(getProviders).toHaveBeenCalledTimes(1)
+    renderDetail('/providers/2')
 
-    await user.type(screen.getByLabelText(/^area$/i), 'Gulshan')
-    expect(getProviders).toHaveBeenCalledTimes(1)
+    expect(
+      await screen.findByText("This provider hasn\u2019t added a description yet.")
+    ).toBeInTheDocument()
+  })
 
-    await user.click(screen.getByRole('button', { name: /apply/i }))
+  it('shows a "no reviews yet" empty state (Rating API not built until Day 7)', async () => {
+    getProviderDetail.mockResolvedValue(PROVIDER)
 
-    await waitFor(() =>
-      expect(getProviders).toHaveBeenLastCalledWith({ category: '', area: 'Gulshan', sort: '' })
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Karim Uddin' })
+
+    expect(screen.getByText('No reviews yet')).toBeInTheDocument()
+  })
+
+  it('shows a "Provider not found" state on a 404', async () => {
+    const error = new Error('Not Found')
+    error.response = { status: 404, data: { status: 'error', message: 'Provider not found' } }
+    getProviderDetail.mockRejectedValue(error)
+
+    renderDetail('/providers/999')
+
+    expect(await screen.findByText('Provider not found')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /browse all providers/i })).toHaveAttribute(
+      'href',
+      '/providers'
     )
   })
 
-  it('applies category + area together when Apply is clicked', async () => {
-    getProviders.mockResolvedValue({ data: PROVIDERS, count: 2 })
+  it('shows a generic error state on a non-404 failure', async () => {
+    const error = new Error('Server error')
+    error.response = { data: { message: 'Could not load this provider. Please try again.' } }
+    getProviderDetail.mockRejectedValue(error)
+
+    renderDetail()
+
+    expect(await screen.findByText(/could not load this provider/i)).toBeInTheDocument()
+  })
+
+  it('sends an unauthenticated visitor to /login when they try to message the provider', async () => {
+    getProviderDetail.mockResolvedValue(PROVIDER)
     const user = userEvent.setup()
 
-    renderProviders('/providers')
-    await screen.findByText('Karim Uddin')
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Karim Uddin' })
 
-    await user.selectOptions(screen.getByLabelText(/category/i), 'Electrician')
-    await user.type(screen.getByLabelText(/^area$/i), 'Mirpur')
-    await user.click(screen.getByRole('button', { name: /apply/i }))
+    await user.click(screen.getByRole('button', { name: /send message/i }))
 
-    await waitFor(() =>
-      expect(getProviders).toHaveBeenLastCalledWith({ category: '1', area: 'Mirpur', sort: '' })
-    )
+    expect(await screen.findByRole('heading', { name: /welcome back/i })).toBeInTheDocument()
   })
 
-  it('applies the "Highest rated" sort immediately, without an Apply click', async () => {
-    getProviders.mockResolvedValue({ data: PROVIDERS, count: 2 })
+  it('navigates straight into Messages with this provider when Send Message is clicked', async () => {
+    // Follow-up after Day 9: "Send Message" no longer opens an inline
+    // composer on the profile page (that used to call
+    // chatService.sendMessage() directly via useSendFirstMessage,
+    // since removed) — it routes to ChatsPage instead, carrying
+    // enough in the URL (?with=&providerId=&name=) for that page to
+    // build a conversation shell with no prior messages. See
+    // StickyContactCard.jsx and ChatsPage.jsx's doc comments.
+    loginAsUser()
+    getProviderDetail.mockResolvedValue(PROVIDER)
+    listConversations.mockResolvedValue([])
+    getMessageThread.mockResolvedValue([])
     const user = userEvent.setup()
 
-    renderProviders('/providers')
-    await screen.findByText('Karim Uddin')
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Karim Uddin' })
 
-    await user.click(screen.getByRole('radio', { name: /highest rated/i }))
+    await user.click(screen.getByRole('button', { name: /send message/i }))
 
-    await waitFor(() =>
-      expect(getProviders).toHaveBeenLastCalledWith({ category: '', area: '', sort: 'rating' })
-    )
+    expect(await screen.findByRole('heading', { name: /messages/i })).toBeInTheDocument()
+    // The chat window's header renders the provider's name from the
+    // URL's `?name=` param — no round trip needed before it can show
+    // who this conversation shell is with.
+    expect(screen.getAllByText('Karim Uddin').length).toBeGreaterThan(0)
+    // No Message rows exist yet for this pair, so the thread genuinely
+    // fetches empty (see getMessageThread.mockResolvedValue([]) above)
+    // — MessageThread's own empty state, not a placeholder invented
+    // for this shell.
+    expect(
+      await screen.findByText(/no messages yet.*say hello to start the conversation/i)
+    ).toBeInTheDocument()
+    // Ready to type immediately — no extra click needed to "open" a composer.
+    expect(screen.getByPlaceholderText(/type a message/i)).toBeInTheDocument()
+    expect(getMessageThread).toHaveBeenCalledWith({ providerId: 1, withUserId: undefined })
   })
 
-  it('renders category options sourced from the categories API', async () => {
-    getProviders.mockResolvedValue({ data: [], count: 0 })
+  it('logs a contact and explains the number is not available yet on "Show Number"', async () => {
+    loginAsUser()
+    getProviderDetail.mockResolvedValue(PROVIDER)
+    createContact.mockResolvedValue({ contact_id: 16, provider_name: 'Karim Uddin' })
+    const user = userEvent.setup()
 
-    renderProviders()
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Karim Uddin' })
 
-    expect(await screen.findByRole('option', { name: 'Electrician' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Plumber' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /show number/i }))
+
+    expect(
+      await screen.findByText(/a direct number isn't shared yet/i)
+    ).toBeInTheDocument()
+    expect(createContact).toHaveBeenCalledWith({ providerId: 1 })
   })
 
-  it('shows a "View Profile" link to the (future) provider detail route', async () => {
-    getProviders.mockResolvedValue({ data: PROVIDERS, count: 2 })
+  it('navigates to the Report Provider page when Report this provider is clicked', async () => {
+    // Day 9, Dev 1: updated for the Day 8, Dev 3 change where "Report
+    // this provider" (now a Link, not a button — see
+    // StickyContactCard.jsx) opens the real Report Provider page
+    // instead of the old "not open yet" placeholder text.
+    getProviderDetail.mockResolvedValue(PROVIDER)
+    loginAsUser()
+    const user = userEvent.setup()
 
-    renderProviders()
-    await screen.findByText('Karim Uddin')
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Karim Uddin' })
 
-    const links = screen.getAllByRole('link', { name: /view profile/i })
-    expect(links[0]).toHaveAttribute('href', '/providers/1')
+    await user.click(screen.getByRole('link', { name: /report this provider/i }))
+
+    expect(await screen.findByRole('heading', { name: /report this provider/i })).toBeInTheDocument()
+  })
+
+  it('sends an unauthenticated visitor to Login when Report this provider is clicked', async () => {
+    getProviderDetail.mockResolvedValue(PROVIDER)
+    const user = userEvent.setup()
+
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Karim Uddin' })
+
+    await user.click(screen.getByRole('link', { name: /report this provider/i }))
+
+    expect(await screen.findByRole('button', { name: /^log in$/i })).toBeInTheDocument()
+  })
+
+  // -- Day 9, Dev 1: Contact Log Eligibility Check (Rate button enable/disable) --
+  it('shows Rate this provider as a real link once eligibility resolves true', async () => {
+    getProviderDetail.mockResolvedValue(PROVIDER)
+    checkContactEligibility.mockResolvedValue({ has_contacted: true, provider_id: 1 })
+    loginAsUser()
+    const user = userEvent.setup()
+
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Karim Uddin' })
+
+    const rateLink = await screen.findByRole('link', { name: /rate this provider/i })
+    await user.click(rateLink)
+
+    expect(await screen.findByRole('heading', { name: /rate your experience/i })).toBeInTheDocument()
+  })
+
+  it('shows Rate this provider as disabled when the user has not contacted the provider', async () => {
+    getProviderDetail.mockResolvedValue(PROVIDER)
+    checkContactEligibility.mockResolvedValue({ has_contacted: false, provider_id: 1 })
+    loginAsUser()
+
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Karim Uddin' })
+
+    await waitFor(() => {
+      expect(checkContactEligibility).toHaveBeenCalledWith(1)
+    })
+    expect(screen.queryByRole('link', { name: /rate this provider/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/rate this provider/i)).toBeInTheDocument()
+  })
+
+  it('does not call the eligibility check for a logged-out visitor', async () => {
+    getProviderDetail.mockResolvedValue(PROVIDER)
+
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Karim Uddin' })
+
+    // A logged-out visitor still sees "Rate this provider" as a link
+    // (it funnels through requireAuth() to /login on click, same as
+    // Report) — but the auth-required eligibility endpoint is never
+    // called for them.
+    expect(screen.getByRole('link', { name: /rate this provider/i })).toBeInTheDocument()
+    expect(checkContactEligibility).not.toHaveBeenCalled()
+  })
+
+  it('links back to the provider list from the breadcrumb', async () => {
+    getProviderDetail.mockResolvedValue(PROVIDER)
+
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Karim Uddin' })
+
+    const providersLinks = screen.getAllByRole('link', { name: /providers/i })
+    expect(providersLinks[0]).toHaveAttribute('href', '/providers')
+  })
+
+  it('shows Send Message as disabled when the provider has no linked user_id yet', async () => {
+    // Contract-gap fallback (see StickyContactCard.jsx's `canMessage`)
+    // — without a user_id there's no one to route a `?with=` chat to,
+    // so the button disables instead of navigating to a chat that can
+    // never resolve. "Show Number" is unaffected since it doesn't need
+    // a user_id.
+    loginAsUser()
+    getProviderDetail.mockResolvedValue({ ...PROVIDER, user_id: undefined })
+
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Karim Uddin' })
+
+    expect(screen.getByRole('button', { name: /send message/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /show number/i })).toBeEnabled()
   })
 
   // Day 10, Dev 1 bug fix: this page always rendered the public
@@ -202,22 +361,20 @@ describe('ProvidersPage', () => {
   // Browsing is deliberately public, so unlike a protected page this
   // one still needs the public Navbar for an anonymous visitor.
   describe('navbar by auth state (Day 10 fix)', () => {
-    beforeEach(() => {
-      getProviders.mockResolvedValue({ data: [], count: 0 })
-    })
-
     it('shows the public Navbar for an anonymous visitor', async () => {
-      renderProviders()
-      await screen.findByTestId('results-summary')
+      getProviderDetail.mockResolvedValue(PROVIDER)
+      renderDetail()
+      await screen.findByRole('heading', { name: 'Karim Uddin' })
 
       expect(screen.getByRole('link', { name: /log in/i })).toBeInTheDocument()
       expect(screen.getByText(/how it works/i)).toBeInTheDocument()
     })
 
     it('shows UserNavbar, not the public Navbar, for a logged-in user', async () => {
-      saveSession({ accessToken: 'tok', refreshToken: 'ref', role: 'user', name: 'Mahmudul' })
-      renderProviders()
-      await screen.findByTestId('results-summary')
+      loginAsUser()
+      getProviderDetail.mockResolvedValue(PROVIDER)
+      renderDetail()
+      await screen.findByRole('heading', { name: 'Karim Uddin' })
 
       expect(screen.getByRole('link', { name: /^messages$/i })).toHaveAttribute('href', '/chats')
       expect(screen.queryByText(/how it works/i)).not.toBeInTheDocument()
@@ -225,9 +382,10 @@ describe('ProvidersPage', () => {
     })
 
     it('shows DashboardNavbar, not the public Navbar, for a logged-in provider', async () => {
-      saveSession({ accessToken: 'tok', refreshToken: 'ref', role: 'provider', name: 'Karim' })
-      renderProviders()
-      await screen.findByTestId('results-summary')
+      loginAsProvider()
+      getProviderDetail.mockResolvedValue(PROVIDER)
+      renderDetail()
+      await screen.findByRole('heading', { name: 'Karim Uddin' })
 
       expect(screen.getByRole('link', { name: /^reviews$/i })).toHaveAttribute('href', '/provider/reviews')
       expect(screen.queryByText(/how it works/i)).not.toBeInTheDocument()
