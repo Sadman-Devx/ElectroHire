@@ -4,11 +4,12 @@ import { Menu, User as UserIcon, X, Zap } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/useAuth'
+import { useUnreadMessagesCount } from '@/hooks/useUnreadMessagesCount'
 import { cn } from '@/lib/utils'
 
 const NAV_LINKS = [
   { label: 'Dashboard', to: '/dashboard' },
-  { label: 'Messages', to: '/chats' },
+  { label: 'Messages', to: '/chats', showUnreadBadge: true },
   { label: 'Account', to: '/account' },
 ]
 
@@ -25,14 +26,14 @@ function Logo() {
   )
 }
 
-function NavItem({ to, label, onNavigate }) {
+function NavItem({ to, label, badgeCount, onNavigate }) {
   return (
     <NavLink
       to={to}
       onClick={onNavigate}
       className={({ isActive }) =>
         cn(
-          'text-sm font-medium transition-colors',
+          'flex items-center gap-1.5 text-sm font-medium transition-colors',
           isActive
             ? 'text-[var(--color-text)]'
             : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]'
@@ -40,6 +41,14 @@ function NavItem({ to, label, onNavigate }) {
       }
     >
       {label}
+      {badgeCount > 0 ? (
+        <span
+          className="flex h-5 min-w-5 flex-shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] px-1.5 text-[11px] font-semibold text-white"
+          aria-label={`${badgeCount} unread message${badgeCount === 1 ? '' : 's'}`}
+        >
+          {badgeCount}
+        </span>
+      ) : null}
     </NavLink>
   )
 }
@@ -101,9 +110,16 @@ function UserMenu({ onNavigate }) {
  * would need role-branching internally anyway, and duplicating this
  * (now proven) structure is safer than reshaping DashboardNavbar —
  * already in production use — to fit a second caller.
+ *
+ * "Messages" carries an unread-count badge (see
+ * useUnreadMessagesCount.js) so a new message is noticeable from any
+ * page a customer happens to be on, not only once they've already
+ * opened Chats — added after testing surfaced that an unread reply
+ * was otherwise invisible outside the Chats page itself.
  */
 function UserNavbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const unreadCount = useUnreadMessagesCount()
 
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--color-border)] bg-[var(--color-surface)]/90 backdrop-blur">
@@ -113,7 +129,11 @@ function UserNavbar() {
           <ul className="hidden items-center gap-7 md:flex">
             {NAV_LINKS.map((link) => (
               <li key={link.to}>
-                <NavItem to={link.to} label={link.label} />
+                <NavItem
+                  to={link.to}
+                  label={link.label}
+                  badgeCount={link.showUnreadBadge ? unreadCount : undefined}
+                />
               </li>
             ))}
           </ul>
@@ -143,7 +163,11 @@ function UserNavbar() {
                   className="block rounded-[var(--radius-button)] px-2 py-2.5 hover:bg-[var(--color-bg)]"
                   onClick={() => setIsMenuOpen(false)}
                 >
-                  <NavItem to={link.to} label={link.label} />
+                  <NavItem
+                    to={link.to}
+                    label={link.label}
+                    badgeCount={link.showUnreadBadge ? unreadCount : undefined}
+                  />
                 </div>
               </li>
             ))}
