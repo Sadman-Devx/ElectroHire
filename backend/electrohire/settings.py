@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -32,6 +33,13 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    # 'daphne' must be the FIRST app in the list -- Channels' install
+    # docs rely on it being loaded before django.contrib.staticfiles so
+    # it can transparently replace `runserver` with an ASGI-capable
+    # server. Without this, `manage.py runserver` still speaks WSGI
+    # only and every WebSocket handshake to /ws/... 404s.
+    'daphne',
+
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -42,6 +50,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
+    'channels',
 
     'users',
     'providers',
@@ -93,6 +102,37 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'electrohire.wsgi.application'
+
+# Real-time chat entry point (electrohire/asgi.py) -- routes plain
+# HTTP to the same Django app as WSGI, and WebSocket connections to
+# contacts/routing.py's ChatConsumer. `daphne` (INSTALLED_APPS, above)
+# is what makes `manage.py runserver` actually serve this instead of
+# WSGI_APPLICATION during local dev.
+ASGI_APPLICATION = 'electrohire.asgi.application'
+
+# ── Channel layer (Channels' pub/sub backbone for real-time chat) ──
+# InMemoryChannelLayer needs zero setup and is fine for local dev and
+# a single-process deployment, but it does NOT work across multiple
+# processes/machines: a message broadcast on one worker never reaches
+# a socket held open by another. Set REDIS_URL in production (most
+# hosts inject this automatically once you attach a Redis instance) to
+# switch to a real shared channel layer -- nothing else in the code
+# needs to change either way.
+REDIS_URL = os.environ.get('REDIS_URL')
+
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {'hosts': [REDIS_URL]},
+        }
+    }
+else:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        }
+    }
 
 
 # Database
@@ -162,10 +202,16 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
+    # Day 10, Dev 1: normalizes framework-raised errors (invalid/expired
+    # JWT, missing auth header, wrong HTTP method, DRF's own 404/403,
+    # throttling, ...) into the same {"status": "error", "message": "..."}
+    # shape every hand-written view already returns via
+    # core.response.error_response — see core/exceptions.py's docstring
+    # for the bug this fixes.
+    'EXCEPTION_HANDLER': 'core.exceptions.custom_exception_handler',
 }
 
 # Media Files (Photo Upload-এর জন্য)
-import os
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 

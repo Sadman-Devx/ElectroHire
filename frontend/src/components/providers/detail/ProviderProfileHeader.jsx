@@ -1,5 +1,6 @@
-import { Briefcase, MapPin, User as UserIcon } from 'lucide-react'
+import { Briefcase, MapPin } from 'lucide-react'
 
+import { Avatar } from '@/components/ui/avatar'
 import { Card } from '@/components/ui/card'
 import { RatingStars } from './RatingStars'
 
@@ -37,13 +38,13 @@ function ProviderProfileHeader({ provider }) {
   return (
     <Card className="p-6">
       <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
-        <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--color-bg)] ring-4 ring-[var(--color-primary-tint)]">
-          {photo ? (
-            <img src={photo} alt={name} className="h-full w-full object-cover" />
-          ) : (
-            <UserIcon className="h-9 w-9 text-[var(--color-text-subtle)]" aria-hidden="true" />
-          )}
-        </div>
+        <Avatar
+          src={photo}
+          alt={name}
+          size="h-20 w-20"
+          iconSize="h-9 w-9"
+          className="ring-4 ring-[var(--color-primary-tint)]"
+        />
 
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-bold text-[var(--color-text)] sm:text-2xl">{name}</h1>

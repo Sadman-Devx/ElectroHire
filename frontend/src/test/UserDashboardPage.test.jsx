@@ -9,6 +9,7 @@ import { saveSession } from '@/services/tokenStorage'
 import { getCategories } from '@/services/categoryService'
 import { getContactHistory } from '@/services/contactService'
 import { getMyRatings } from '@/services/ratingService'
+import { listConversations } from '@/services/chatService'
 
 vi.mock('@/services/categoryService', () => ({
   getCategories: vi.fn(),
@@ -18,6 +19,14 @@ vi.mock('@/services/contactService', () => ({
 }))
 vi.mock('@/services/ratingService', () => ({
   getMyRatings: vi.fn(),
+}))
+// useUnreadMessagesCount() (UserNavbar's "Messages" badge — see that
+// file's doc comment) calls this on every authenticated page, this
+// one included. Mocked the same way ChatsPage.test.jsx already mocks
+// it; every test below that doesn't care about the badge gets an
+// empty inbox by default so it stays hidden and doesn't interfere.
+vi.mock('@/services/chatService', () => ({
+  listConversations: vi.fn(),
 }))
 
 const CATEGORIES = [
@@ -74,7 +83,9 @@ beforeEach(() => {
   getCategories.mockReset()
   getContactHistory.mockReset()
   getMyRatings.mockReset()
+  listConversations.mockReset()
   getCategories.mockResolvedValue(CATEGORIES)
+  listConversations.mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -99,6 +110,42 @@ describe('UserDashboardPage', () => {
     expect(
       await screen.findByRole('heading', { name: /good (morning|afternoon|evening), Mahmudul/i })
     ).toBeInTheDocument()
+  })
+
+  // useUnreadMessagesCount() — see UserNavbar.jsx's doc comment. The
+  // dashboard is just one of several pages this hook runs on; it's
+  // tested here rather than duplicated across every page that renders
+  // UserNavbar, since the badge itself doesn't vary by which page it's
+  // shown on.
+  it('shows an unread-count badge on the Messages nav link when there are unread messages', async () => {
+    loginAsUser()
+    getContactHistory.mockResolvedValue([])
+    getMyRatings.mockResolvedValue([])
+    listConversations.mockResolvedValue([
+      { provider_id: 1, other_user_id: 1, other_user_name: 'sadid', other_user_role: 'provider', last_message: 'hlw i am here for your service', last_message_at: '2026-08-30T10:00:00Z', unread_count: 1 },
+      { provider_id: 2, other_user_id: 2, other_user_name: 'provider', other_user_role: 'provider', last_message: 'hi', last_message_at: '2026-08-29T23:00:00Z', unread_count: 0 },
+    ])
+
+    renderDashboard()
+    await screen.findByRole('heading', { name: /good (morning|afternoon|evening), Mahmudul/i })
+
+    const messagesLink = await screen.findByRole('link', { name: /messages/i })
+    expect(messagesLink).toHaveTextContent('1')
+    expect(screen.getByLabelText('1 unread message')).toBeInTheDocument()
+  })
+
+  it('shows no badge on the Messages nav link when nothing is unread', async () => {
+    loginAsUser()
+    getContactHistory.mockResolvedValue([])
+    getMyRatings.mockResolvedValue([])
+    listConversations.mockResolvedValue([
+      { provider_id: 1, other_user_id: 1, other_user_name: 'sadid', other_user_role: 'provider', last_message: 'hlw', last_message_at: '2026-08-30T10:00:00Z', unread_count: 0 },
+    ])
+
+    renderDashboard()
+    const messagesLink = await screen.findByRole('link', { name: /^messages$/i })
+
+    expect(messagesLink).toHaveTextContent(/^Messages$/)
   })
 
   it('renders the quick search box with categories from the categories API', async () => {
@@ -181,7 +228,24 @@ describe('UserDashboardPage', () => {
     )
   })
 
-  it('renders the public Navbar for a "user" role and the DashboardNavbar for a "provider" role', async () => {
+  it('renders UserNavbar for a "user" role and DashboardNavbar for a "provider" role', async () => {
+    loginAsUser()
+    getContactHistory.mockResolvedValue([])
+    getMyRatings.mockResolvedValue([])
+
+    renderDashboard()
+    await screen.findByText(/haven.t contacted any providers yet/i)
+
+    // UserNavbar (Day 9, Dev 1/3 post-launch fix, replacing the public
+    // Navbar here) — Dashboard/Messages/Account, no dead marketing
+    // anchor links. "Account" matched on the exact name since the page
+    // also has its own "View your full account & history" link whose
+    // accessible name contains the same word.
+    expect(screen.getByRole('link', { name: /messages/i })).toHaveAttribute('href', '/chats')
+    expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/account')
+  })
+
+  it('renders DashboardNavbar (not UserNavbar) for a "provider" role', async () => {
     loginAsProvider()
     getContactHistory.mockResolvedValue([])
     getMyRatings.mockResolvedValue([])
@@ -195,5 +259,24 @@ describe('UserDashboardPage', () => {
       'href',
       '/provider/reviews'
     )
+  })
+
+  // Day 9, Dev 3 (post-launch addition): CategoryQuickLinks — a fast
+  // "jump straight to a category" shortcut, distinct from HomePage's
+  // bigger marketing-oriented PopularCategories grid. Links to the
+  // exact same /providers?category=<id> shape SearchBox already builds
+  // (see pages/ProvidersPage.jsx), so ProvidersPage needs no changes.
+  it('shows category quick-jump links that route to /providers?category=<id>', async () => {
+    loginAsUser()
+    getContactHistory.mockResolvedValue([])
+    getMyRatings.mockResolvedValue([])
+
+    renderDashboard()
+
+    const electricianLink = await screen.findByRole('link', { name: /electrician/i })
+    expect(electricianLink).toHaveAttribute('href', '/providers?category=1')
+
+    const plumberLink = screen.getByRole('link', { name: /plumber/i })
+    expect(plumberLink).toHaveAttribute('href', '/providers?category=2')
   })
 })

@@ -1,15 +1,12 @@
-import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Flag, MessageCircle, Phone, Star } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
-import { Textarea } from '@/components/ui/textarea'
 import { useAuth } from '@/context/useAuth'
 import { useContactEligibility } from '@/hooks/useContactEligibility'
 import { useContactProvider } from '@/hooks/useContactProvider'
-import { useSendFirstMessage } from '@/hooks/useSendFirstMessage'
 import { formatMonthYear } from '@/lib/formatDate'
 
 /**
@@ -23,19 +20,31 @@ import { formatMonthYear } from '@/lib/formatDate'
  * "Number Reveal করলেও Log তৈরি হবে" — and there's no message content
  * involved in revealing a number.
  *
- * "Send Message" changed as of the Day 8, Dev 1 follow-up: it used to
- * just log a contact and show a static "sent" banner with no real
- * message and no way to actually reach a conversation — a dead end
- * once the real Chat Page (ChatsPage.jsx) existed to receive it. Now
- * it opens an inline composer and calls the *real*
- * chatService.sendMessage() (the same call the Chat Page itself
- * makes, via useSendFirstMessage), which auto-creates the ContactLog
- * as a side effect (MessageListCreateView.post(), get_or_create) — so
- * there's nothing left for the old POST /api/contacts/ call to do for
- * this intent. On success it links straight into
- * /chats?with=<provider.user_id>, where a real conversation now
- * exists to open (provider.user_id is a Day 8 addition to
- * ProviderDetailSerializer — see that file's docstring).
+ * "Send Message" changed again as of the follow-up after Day 9: it
+ * used to open an inline composer right here on the profile page and
+ * send the first message without ever leaving it (Day 8, Dev 1). Per
+ * product feedback, composing on the profile page felt like a
+ * dead-end side quest instead of actually starting a conversation —
+ * now the button's only job is routing the customer straight into
+ * ChatsPage (the same "Messages" page every reply after the first one
+ * already lives in), where they type and send. No message is composed
+ * or sent from this card anymore; useSendFirstMessage.js (which used
+ * to do that) was removed as dead code along with it.
+ *
+ * The customer hasn't sent anything yet at the point of this
+ * navigation, so there's no real conversation for ChatsPage to find
+ * in GET /api/contacts/conversations/ (that list only contains
+ * threads with at least one Message row — see contacts/views.py
+ * ConversationListView). `?providerId=` and `&name=` are carried
+ * alongside the existing `?with=<user_id>` convention specifically so
+ * ChatsPage can render a conversation shell — provider identity and
+ * header, empty thread, ready composer — before any message exists,
+ * instead of the empty state a bare `?with=` alone would produce.
+ * `name` travels in the URL rather than being re-fetched on the other
+ * end purely to avoid an extra round trip on click; it's used for
+ * nothing but a header label, so there's no correctness reason to
+ * prefer a fresh fetch over what's already sitting in `provider` here.
+ * See ChatsPage.jsx's own doc comment for the read side of this.
  *
  * Not logged in → sends the user to /login first (same
  * `state: { from: location }` pattern ProtectedRoute already uses),
@@ -78,12 +87,7 @@ function StickyContactCard({ provider }) {
     error: contactError,
     reset: resetContact,
   } = useContactProvider(provider.id)
-  const { send, isSending, error: sendError, reset: resetSend } = useSendFirstMessage(provider.id)
   const { hasContacted, isLoading: eligibilityLoading } = useContactEligibility(provider.id)
-
-  const [isComposerOpen, setIsComposerOpen] = useState(false)
-  const [messageText, setMessageText] = useState('')
-  const [sentMessage, setSentMessage] = useState(null)
 
   function requireAuth() {
     if (isAuthenticated) return true
@@ -103,21 +107,14 @@ function StickyContactCard({ provider }) {
     }
   }
 
-  function handleOpenComposer() {
+  function handleSendMessageClick() {
     if (!requireAuth()) return
-    setIsComposerOpen(true)
-  }
-
-  async function handleSendSubmit(event) {
-    event.preventDefault()
-    const trimmed = messageText.trim()
-    if (!trimmed) return
-    const created = await send(trimmed)
-    if (created) {
-      setSentMessage(trimmed)
-      setIsComposerOpen(false)
-      setMessageText('')
-    }
+    const params = new URLSearchParams({
+      with: String(provider.user_id),
+      providerId: String(provider.id),
+      name: provider.name,
+    })
+    navigate(`/chats?${params.toString()}`)
   }
 
   function handleShowNumber() {
@@ -126,17 +123,17 @@ function StickyContactCard({ provider }) {
   }
 
   function handleBackToOptions() {
-    setSentMessage(null)
-    setIsComposerOpen(false)
-    setMessageText('')
-    resetSend()
     resetContact()
   }
 
   const memberSince = formatMonthYear(provider.member_since)
   const isNumberRevealed = resultIntent === 'number'
-  const isPending = pendingIntent !== null || isSending
-  const showBackLink = Boolean(sentMessage) || isNumberRevealed
+  const isPending = pendingIntent !== null
+  // provider.user_id is a Day 8 addition to ProviderDetailSerializer
+  // (see that file's docstring) — without it there's no id to route
+  // this conversation to, so the button is disabled rather than
+  // navigating to a chat that can never resolve to anyone.
+  const canMessage = Boolean(provider.user_id)
 
   return (
     <Card className="p-6 lg:sticky lg:top-24">
@@ -144,22 +141,7 @@ function StickyContactCard({ provider }) {
         Contact {provider.name}
       </p>
 
-      {sentMessage ? (
-        <div
-          role="status"
-          className="rounded-[var(--radius-input)] bg-[var(--color-success)]/10 p-3 text-sm text-[var(--color-success)]"
-        >
-          Your message has been sent to {provider.name}.
-          {provider.user_id ? (
-            <>
-              {' '}
-              <Link to={`/chats?with=${provider.user_id}`} className="font-semibold underline">
-                Open the conversation
-              </Link>
-            </>
-          ) : null}
-        </div>
-      ) : isNumberRevealed ? (
+      {isNumberRevealed ? (
         <div
           role="status"
           className="rounded-[var(--radius-input)] bg-[var(--color-secondary-tint)] p-3 text-sm text-[var(--color-secondary)]"
@@ -168,40 +150,15 @@ function StickyContactCard({ provider }) {
             ? `Call ${provider.name}: ${provider.phone}`
             : `We've let ${provider.name} know you're interested. A direct number isn't shared yet — send a message instead.`}
         </div>
-      ) : isComposerOpen ? (
-        <form onSubmit={handleSendSubmit} className="flex flex-col gap-2.5">
-          <Textarea
-            autoFocus
-            rows={3}
-            placeholder={`Say hello to ${provider.name} and describe what you need...`}
-            value={messageText}
-            onChange={(event) => setMessageText(event.target.value)}
-            disabled={isSending}
-          />
-          <div className="flex gap-2.5">
-            <Button
-              type="button"
-              variant="secondary"
-              className="flex-1"
-              disabled={isSending}
-              onClick={() => setIsComposerOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" className="flex-1" disabled={isSending || !messageText.trim()}>
-              {isSending ? (
-                <>
-                  <Spinner /> Sending…
-                </>
-              ) : (
-                'Send'
-              )}
-            </Button>
-          </div>
-        </form>
       ) : (
         <div className="flex flex-col gap-2.5">
-          <Button type="button" className="w-full" disabled={isPending} onClick={handleOpenComposer}>
+          <Button
+            type="button"
+            className="w-full"
+            disabled={isPending || !canMessage}
+            onClick={handleSendMessageClick}
+            title={canMessage ? undefined : 'Messaging is not available for this provider yet.'}
+          >
             <MessageCircle className="h-4 w-4" aria-hidden="true" /> Send Message
           </Button>
           <Button
@@ -224,13 +181,11 @@ function StickyContactCard({ provider }) {
         </div>
       )}
 
-      {sendError ? (
-        <p className="mt-3 text-xs font-medium text-[var(--color-danger)]">{sendError}</p>
-      ) : contactError ? (
+      {contactError ? (
         <p className="mt-3 text-xs font-medium text-[var(--color-danger)]">{contactError}</p>
       ) : null}
 
-      {showBackLink ? (
+      {isNumberRevealed ? (
         <button
           type="button"
           onClick={handleBackToOptions}

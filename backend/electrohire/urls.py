@@ -17,6 +17,7 @@ Including another URLconf
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
+from django.http import JsonResponse
 from django.urls import include, path
 
 urlpatterns = [
@@ -31,3 +32,24 @@ urlpatterns = [
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+
+# ── Day 10, Dev 1 ────────────────────────────────────────────────────
+# A URL that matches no urlpattern at all never reaches a DRF view, so
+# core/exceptions.py's custom_exception_handler (which only fires for
+# exceptions raised *inside* a view) can't normalize it — Django's own
+# 404 machinery handles it first. With DEBUG=True (dev, always) Django
+# shows its HTML debug page regardless of handler404 below; that's
+# expected in dev and harmless (it dies with DEBUG=False anyway). This
+# only takes effect in production (DEBUG=False), where the frontend
+# would otherwise get an HTML 404 page instead of JSON for a typo'd or
+# stale API path — same {"status", "message"} contract as every other
+# endpoint, instead of Django's default plain-text/HTML 404.
+def api_not_found(request, exception=None):
+    return JsonResponse(
+        {"status": "error", "message": "The requested endpoint was not found."},
+        status=404,
+    )
+
+
+handler404 = api_not_found

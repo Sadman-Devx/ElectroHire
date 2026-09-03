@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 from core.response import success_response, error_response, first_error_message
 from providers.models import Provider
 from .models import ContactLog, Message
+from .services import broadcast_new_message, resolve_other_user
 from .serializers import (
     ContactCheckSerializer,
     ContactCreateSerializer,
@@ -37,9 +38,15 @@ class ContactCreateView(APIView):
     def post(self, request):
         serializer = ContactCreateSerializer(data=request.data)
         if not serializer.is_valid():
-            first_error = next(iter(serializer.errors.values()))[0]
+            # Day 10, Dev 2: was `next(iter(serializer.errors.values()))[0]`
+            # — only ever safe here because provider_id is a plain
+            # IntegerField that can't itself produce a nested error. Switched
+            # to the shared helper anyway so this view can't silently regress
+            # into the same raw-repr bug core.response.first_error_message
+            # was just fixed for (see its docstring) if this serializer ever
+            # grows a ListField/nested field later.
             return error_response(
-                message=str(first_error),
+                message=first_error_message(serializer.errors),
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -155,28 +162,25 @@ class MessageListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def _resolve_other_user(self, request, provider):
-        """Returns (other_user, error_response_or_None)."""
-        if request.user.id != provider.user_id:
-            # Customer's-eye view: the other party is the provider.
-            return provider.user, None
+        """
+        Returns (other_user, error_response_or_None).
 
-        # Provider's-eye view: need to know which customer's thread this is.
+        Thin DRF wrapper around services.resolve_other_user, which now
+        holds the actual rule (kept there, not here, so
+        ChatConsumer -- contacts/consumers.py -- can call the exact
+        same logic without importing anything DRF-specific).
+        """
         other_user_id = request.query_params.get("with")
-        if not other_user_id:
-            return None, error_response(
-                "Provider replies require '?with=<customer_user_id>' to "
-                "identify which conversation this is.",
-                status.HTTP_400_BAD_REQUEST,
+        other_user, error_message = resolve_other_user(
+            request.user, provider, other_user_id
+        )
+        if error_message:
+            status_code = (
+                status.HTTP_404_NOT_FOUND
+                if error_message == "User not found"
+                else status.HTTP_400_BAD_REQUEST
             )
-        try:
-            other_user = User.objects.get(id=other_user_id)
-        except (User.DoesNotExist, ValueError, TypeError):
-            return None, error_response("User not found", status.HTTP_404_NOT_FOUND)
-
-        if other_user.id == request.user.id:
-            return None, error_response(
-                "You cannot message yourself.", status.HTTP_400_BAD_REQUEST
-            )
+            return None, error_response(error_message, status_code)
         return other_user, None
 
     def _resolve_provider(self, provider_id):
@@ -239,6 +243,14 @@ class MessageListCreateView(APIView):
         if request.user.id != provider.user_id:
             ContactLog.objects.get_or_create(user=request.user, provider=provider)
 
+        # Real-time push: instantly delivers this message to the other
+        # party's open chat window (ChatConsumer, contacts/consumers.py)
+        # if they have one connected. Sending itself still goes through
+        # this same REST endpoint either way -- this just means whoever
+        # is on the other end doesn't have to wait for their next 5s
+        # poll to see it. A no-op if nobody has that thread open.
+        broadcast_new_message(message)
+
         response_data = MessageCreateResponseSerializer(message).data
         return success_response(data=response_data, status_code=status.HTTP_201_CREATED)
 
@@ -281,22 +293,6 @@ class ConversationListView(APIView):
                     sender=other_user, receiver=user, is_read=False
                 ).count()
 
-                # `provider_id` must resolve to whichever party in this
-                # thread actually has a Provider profile, not just "the
-                # other party". A customer's-eye view already worked (the
-                # other party IS the provider), but a *provider's own*
-                # conversation list was silently returning provider_id:
-                # None for every thread — `other_user` there is the
-                # customer, who never has a provider_profile, so the
-                # provider's own profile (found via `user`, i.e.
-                # request.user) was never considered. That broke the
-                # frontend's ability to build
-                # /api/contacts/messages/{provider_id}/ from the
-                # provider's side of any conversation, even though this
-                # view's own serializer docstring documents provider_id as
-                # "always present". Found during the Day 8, Dev 1
-                # pre-build audit — same category of pre-existing bug as
-                # the Day 6 INSTALLED_APPS/migration fixes.
                 provider = getattr(other_user, "provider_profile", None) or getattr(
                     user, "provider_profile", None
                 )
@@ -313,9 +309,6 @@ class ConversationListView(APIView):
                     }
                 )
 
-            # last_message_at is never actually None here (every other_user_id
-            # came from a real Message row), but the sentinel keeps this sort
-            # crash-proof if that assumption is ever broken later.
             _MIN_DT = datetime.min.replace(tzinfo=dt_timezone.utc)
             conversations.sort(
                 key=lambda c: c["last_message_at"] or _MIN_DT, reverse=True

@@ -3,9 +3,10 @@ import { Link } from 'react-router-dom'
 
 import { ContactHistorySection } from '@/components/account/ContactHistorySection'
 import { MyRatingsSection } from '@/components/account/MyRatingsSection'
+import { CategoryQuickLinks } from '@/components/dashboard/CategoryQuickLinks'
 import { DashboardNavbar } from '@/components/dashboard/DashboardNavbar'
+import { UserNavbar } from '@/components/dashboard/UserNavbar'
 import { Footer } from '@/components/home/Footer'
-import { Navbar } from '@/components/home/Navbar'
 import { SearchBox } from '@/components/home/SearchBox'
 import { useAuth } from '@/context/useAuth'
 import { useCategories } from '@/hooks/useCategories'
@@ -51,7 +52,15 @@ function getGreeting() {
  * Navbar picked by role, same pattern AccountPage.jsx and
  * ChatsPage.jsx already use: nothing stops a provider account from
  * also contacting/rating other providers, so this stays open to both
- * roles rather than gating one out.
+ * roles rather than gating one out. A non-provider gets UserNavbar
+ * (Day 9, Dev 1/3 post-launch fix) rather than the public Navbar —
+ * see UserNavbar.jsx's docstring for why reusing the marketing Navbar
+ * here was an actual dead-link bug, not just a style mismatch.
+ *
+ * CategoryQuickLinks (same fix) sits between the search box and the
+ * two list cards — a fast "jump straight to a category" shortcut for
+ * a returning user, distinct from HomePage's bigger marketing-oriented
+ * PopularCategories grid (see CategoryQuickLinks.jsx's docstring).
  */
 function UserDashboardPage() {
   const { user } = useAuth()
@@ -59,7 +68,7 @@ function UserDashboardPage() {
   const { history, isLoading: historyLoading, error: historyError } = useContactHistory()
   const { ratings, isLoading: ratingsLoading, error: ratingsError } = useMyRatings()
 
-  const NavbarComponent = user?.role === 'provider' ? DashboardNavbar : Navbar
+  const NavbarComponent = user?.role === 'provider' ? DashboardNavbar : UserNavbar
 
   const recentHistory = history.slice(0, RECENT_ITEMS_LIMIT)
   const recentRatings = ratings.slice(0, RECENT_ITEMS_LIMIT)
@@ -79,9 +88,15 @@ function UserDashboardPage() {
             </p>
           </div>
 
-          <div className="mb-8">
+          <div className="mb-6">
             <SearchBox categories={categories} isLoading={isLoadingCategories} error={categoriesError} />
           </div>
+
+          <CategoryQuickLinks
+            categories={categories}
+            isLoading={isLoadingCategories}
+            error={categoriesError}
+          />
 
           <div className="grid gap-5 sm:grid-cols-2">
             <ContactHistorySection

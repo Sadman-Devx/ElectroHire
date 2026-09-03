@@ -1,27 +1,76 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Send } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 
+// How long to wait after the last keystroke before telling the other
+// party "stopped typing" — long enough to survive normal pauses
+// between words, short enough that the indicator doesn't linger after
+// someone's actually walked away from the keyboard.
+const TYPING_STOP_DELAY_MS = 1500
+
 /**
- * Day 7 spec: "Message Input + Send Button". Purely local UI today —
- * `onSend` is provided by ChatsPage via useChatThread(), which is
- * backed by the mock service until Day 8, Dev 1 swaps it for the real
- * POST /api/contacts/messages/{provider_id}/ call. Nothing here
- * changes when that happens.
+ * Day 7 spec: "Message Input + Send Button", extended with a live
+ * typing signal (real-time chat pass): `onTypingChange(isTyping)` — if
+ * provided — fires `true` on the first keystroke of a fresh draft and
+ * `false` either on submit or after a pause with no further typing.
+ * Deliberately not fired on every keystroke: that would flood the
+ * WebSocket with one "typing" frame per character for no UI benefit,
+ * since the other party's indicator is just a boolean.
  */
-function MessageComposer({ onSend, isSending, isDisabled }) {
+function MessageComposer({ onSend, isSending, isDisabled, onTypingChange }) {
   const [draft, setDraft] = useState('')
+  const isTypingRef = useRef(false)
+  const stopTypingTimerRef = useRef(null)
+
+  function clearStopTypingTimer() {
+    if (stopTypingTimerRef.current) {
+      window.clearTimeout(stopTypingTimerRef.current)
+      stopTypingTimerRef.current = null
+    }
+  }
+
+  function handleChange(event) {
+    const value = event.target.value
+    setDraft(value)
+
+    if (!onTypingChange) return
+
+    if (value.trim()) {
+      if (!isTypingRef.current) {
+        isTypingRef.current = true
+        onTypingChange(true)
+      }
+      clearStopTypingTimer()
+      stopTypingTimerRef.current = window.setTimeout(() => {
+        isTypingRef.current = false
+        onTypingChange(false)
+      }, TYPING_STOP_DELAY_MS)
+    } else if (isTypingRef.current) {
+      // Cleared the input entirely (select-all + delete, etc) — no
+      // need to wait out the timer to say "stopped typing".
+      clearStopTypingTimer()
+      isTypingRef.current = false
+      onTypingChange(false)
+    }
+  }
 
   function handleSubmit(event) {
     event.preventDefault()
     const trimmed = draft.trim()
     if (!trimmed || isSending) return
+    clearStopTypingTimer()
+    isTypingRef.current = false
+    // useChatThread's send() already signals "stopped typing" itself
+    // (see its notifyTyping(false) call) — not duplicated here, this
+    // just stops this component's own local timer from firing later.
     onSend(trimmed)
     setDraft('')
   }
+
+  useEffect(() => clearStopTypingTimer, [])
 
   return (
     <form
@@ -30,7 +79,7 @@ function MessageComposer({ onSend, isSending, isDisabled }) {
     >
       <Input
         value={draft}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={handleChange}
         placeholder="Type a message…"
         aria-label="Type a message"
         disabled={isDisabled}

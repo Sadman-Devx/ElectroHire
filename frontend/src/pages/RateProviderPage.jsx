@@ -6,11 +6,13 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
+import { DashboardNavbar } from '@/components/dashboard/DashboardNavbar'
+import { UserNavbar } from '@/components/dashboard/UserNavbar'
 import { Footer } from '@/components/home/Footer'
-import { Navbar } from '@/components/home/Navbar'
 import { ProviderSummaryCard } from '@/components/providers/ProviderSummaryCard'
 import { RatingTagSelector } from '@/components/providers/rate/RatingTagSelector'
 import { StarRatingInput } from '@/components/providers/rate/StarRatingInput'
+import { useAuth } from '@/context/useAuth'
 import { useProviderDetail } from '@/hooks/useProviderDetail'
 import { useSubmitRating } from '@/hooks/useSubmitRating'
 
@@ -44,6 +46,13 @@ import { useSubmitRating } from '@/hooks/useSubmitRating'
  * the form) so `isSuccess` can swap the whole card for
  * RatingConfirmation — the form component itself stays a plain,
  * controlled child.
+ *
+ * Day 10, Dev 1 bug fix: this page always rendered the public
+ * marketing Navbar — dead-link + "extra nav" bug for a logged-in
+ * visitor (see UserNavbar.jsx's docstring). Same fix as
+ * ReportProviderPage.jsx (this route is also always protected, so
+ * no anonymous-visitor branch is needed): picks DashboardNavbar/
+ * UserNavbar by role instead.
  */
 
 function RateProviderSkeleton() {
@@ -219,6 +228,8 @@ function RateProviderPage() {
   const { id } = useParams()
   const { provider, isLoading, error: loadError, notFound } = useProviderDetail(id)
   const { submit, isSubmitting, error: submitError, isSuccess } = useSubmitRating()
+  const { user } = useAuth()
+  const NavbarComponent = user?.role === 'provider' ? DashboardNavbar : UserNavbar
 
   function handleSubmit({ ratingValue, reviewText, tags }) {
     submit({ providerId: provider.id, ratingValue, reviewText, tags })
@@ -226,7 +237,7 @@ function RateProviderPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg)]">
-      <Navbar />
+      <NavbarComponent />
 
       <main className="flex-1">
         <div className="mx-auto max-w-xl px-4 py-8 sm:px-6">

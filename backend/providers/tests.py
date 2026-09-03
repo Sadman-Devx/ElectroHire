@@ -326,13 +326,6 @@ class ProviderDashboardViewTests(APITestCase):
             user=self.customer_2, provider=self.provider, rating_value=3,
         )
 
-        # 4 messages so the "last 3" truncation is actually exercised.
-        for i in range(4):
-            Message.objects.create(
-                sender=self.customer_1, receiver=self.provider_user,
-                content=f"message {i}",
-            )
-
         self.url = reverse("providers:dashboard")
         access_token = RefreshToken.for_user(self.provider_user).access_token
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
@@ -358,13 +351,92 @@ class ProviderDashboardViewTests(APITestCase):
         self.assertEqual(data["ratings_count"], 2)
         self.assertEqual(data["avg_rating"], 4.0)  # (5 + 3) / 2
 
-    def test_recent_messages_capped_at_three_newest_first(self):
+    def test_recent_messages_empty_when_no_unread_incoming_messages(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.data["data"]["recent_messages"], [])
+
+    def test_recent_messages_deduplicates_same_customer_to_latest_only(self):
+        # Customer One sends 3 unread messages in a row -- these should
+        # collapse into a single row (the newest one), not 3 separate rows.
+        for i in range(3):
+            Message.objects.create(
+                sender=self.customer_1, receiver=self.provider_user,
+                content=f"message {i}",
+            )
+
+        response = self.client.get(self.url)
+        messages = response.data["data"]["recent_messages"]
+
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0]["content"], "message 2")
+        self.assertEqual(messages[0]["sender_name"], "Customer One")
+
+    def test_recent_messages_excludes_providers_own_outgoing_messages(self):
+        # The provider messaging a customer should never appear in their
+        # own "Recent messages" preview -- that list is for messages
+        # waiting on the provider's attention, not a sent-mail log.
+        Message.objects.create(
+            sender=self.provider_user, receiver=self.customer_1,
+            content="Kal sokal 9 tar dike ashbo",
+        )
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.data["data"]["recent_messages"], [])
+
+    def test_recent_messages_excludes_already_read_messages(self):
+        Message.objects.create(
+            sender=self.customer_1, receiver=self.provider_user,
+            content="already seen this one", is_read=True,
+        )
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.data["data"]["recent_messages"], [])
+
+    def test_recent_messages_disappears_once_the_thread_is_read(self):
+        Message.objects.create(
+            sender=self.customer_1, receiver=self.provider_user,
+            content="please help",
+        )
+
+        # Unread -> shows up.
+        response = self.client.get(self.url)
+        self.assertEqual(len(response.data["data"]["recent_messages"]), 1)
+
+        # Provider opens the thread -- the same GET the Chat page already
+        # calls, which marks incoming messages read (see
+        # MessageListCreateViewTests.test_get_marks_incoming_messages_as_read
+        # for that behavior's own dedicated coverage).
+        thread_url = reverse(
+            "contacts:message-thread", args=[self.provider.id]
+        )
+        response = self.client.get(f"{thread_url}?with={self.customer_1.id}")
+        self.assertEqual(response.status_code, 200)
+
+        # Now reading the dashboard again, that conversation is gone.
+        response = self.client.get(self.url)
+        self.assertEqual(response.data["data"]["recent_messages"], [])
+
+    def test_recent_messages_capped_at_three_distinct_customers_newest_first(self):
+        customer_3 = User.objects.create_user(
+            email="c3@example.com", password="pass12345", name="Customer Three",
+            role=User.ROLE_USER, is_active=True,
+        )
+        customer_4 = User.objects.create_user(
+            email="c4@example.com", password="pass12345", name="Customer Four",
+            role=User.ROLE_USER, is_active=True,
+        )
+
+        for customer in (self.customer_1, self.customer_2, customer_3, customer_4):
+            Message.objects.create(
+                sender=customer, receiver=self.provider_user,
+                content=f"hi from {customer.name}",
+            )
+
         response = self.client.get(self.url)
         messages = response.data["data"]["recent_messages"]
 
         self.assertEqual(len(messages), 3)
-        self.assertEqual(messages[0]["content"], "message 3")
-        self.assertEqual(messages[0]["sender_name"], "Customer One")
+        self.assertEqual(messages[0]["sender_name"], "Customer Four")
 
     def test_recent_reviews_shape_matches_provider_ratings_list(self):
         response = self.client.get(self.url)

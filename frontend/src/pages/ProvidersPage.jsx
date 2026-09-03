@@ -2,11 +2,14 @@ import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
 
+import { DashboardNavbar } from '@/components/dashboard/DashboardNavbar'
+import { UserNavbar } from '@/components/dashboard/UserNavbar'
 import { Footer } from '@/components/home/Footer'
 import { Navbar } from '@/components/home/Navbar'
 import { ProviderFilters } from '@/components/providers/ProviderFilters'
 import { ProviderList } from '@/components/providers/ProviderList'
 import { ProviderSort } from '@/components/providers/ProviderSort'
+import { useAuth } from '@/context/useAuth'
 import { useCategories } from '@/hooks/useCategories'
 import { useProviders } from '@/hooks/useProviders'
 
@@ -27,8 +30,24 @@ import { useProviders } from '@/hooks/useProviders'
  *      either sender.
  *   2. Bookmarking/sharing a filtered search and the browser
  *      back/forward buttons both work for free this way.
+ *
+ * Day 10, Dev 1 bug fix: this page always rendered the public
+ * marketing Navbar regardless of auth state, which is a dead-link +
+ * "extra nav" bug — see UserNavbar.jsx's docstring, or TermsPage.jsx's
+ * Day 10 fix for the same issue. Browsing providers is deliberately
+ * public (no login required — see App.jsx's routing), so unlike a
+ * fully protected page this one still needs the public Navbar for an
+ * anonymous visitor; only a logged-in visitor gets bounced to their
+ * role-appropriate one.
  */
 function ProvidersPage() {
+  const { isAuthenticated, user } = useAuth()
+  const NavbarComponent = !isAuthenticated
+    ? Navbar
+    : user?.role === 'provider'
+      ? DashboardNavbar
+      : UserNavbar
+
   const [searchParams, setSearchParams] = useSearchParams()
 
   const categoryId = searchParams.get('category') ?? ''
@@ -76,7 +95,7 @@ function ProvidersPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg)]">
-      <Navbar />
+      <NavbarComponent />
 
       <main className="flex-1">
         <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">

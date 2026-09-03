@@ -16,15 +16,8 @@ import UserDashboardPage from '@/pages/UserDashboardPage'
 import ChatsPage from '@/pages/ChatsPage'
 import RateProviderPage from '@/pages/RateProviderPage'
 import ReportProviderPage from '@/pages/ReportProviderPage'
-import TermsPlaceholder from '@/pages/TermsPlaceholder'
-
-function NotFound() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--color-bg)] text-[var(--color-text-muted)]">
-      Page not found.
-    </div>
-  )
-}
+import TermsPage from '@/pages/TermsPage'
+import NotFoundPage from '@/pages/NotFoundPage'
 
 function App() {
   return (
@@ -121,9 +114,9 @@ function App() {
       />
 
       {/* Day 9, Dev 1 — public: no reason to gate legal text behind login */}
-      <Route path="/terms" element={<TermsPlaceholder />} />
+      <Route path="/terms" element={<TermsPage />} />
 
-      <Route path="*" element={<NotFound />} />
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   )
 }

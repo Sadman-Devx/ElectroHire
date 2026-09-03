@@ -302,6 +302,72 @@ describe('ChatsPage', () => {
     expect(getMessageThread).toHaveBeenCalledWith({ providerId: 1, withUserId: undefined })
   })
 
+  // Follow-up after Day 9: StickyContactCard's "Send Message" no
+  // longer composes on the provider profile page — it navigates
+  // straight here instead, carrying enough in the URL for this page
+  // to build a conversation "shell" for a provider with no prior
+  // messages (not one of the real entries GET /api/contacts/conversations/
+  // would ever return — see this file's doc comment). These three
+  // tests cover that shell directly, independent of StickyContactCard.
+  describe('arriving with ?providerId=&name= for a provider with no prior conversation', () => {
+    it('renders a ready-to-send conversation shell without waiting on the conversations list', async () => {
+      loginAsUser()
+      listConversations.mockResolvedValue(CONVERSATIONS) // neither entry is other_user_id 99
+      getMessageThread.mockResolvedValue([])
+
+      renderChats('/chats?with=99&providerId=9&name=Salam+Hossain')
+
+      expect(await screen.findByText('Salam Hossain')).toBeInTheDocument()
+      expect(
+        await screen.findByText(/no messages yet.*say hello to start the conversation/i)
+      ).toBeInTheDocument()
+      expect(screen.getByPlaceholderText(/type a message/i)).toBeEnabled()
+      expect(getMessageThread).toHaveBeenCalledWith({ providerId: 9, withUserId: undefined })
+    })
+
+    it('sends the first message through the shell like any other thread', async () => {
+      loginAsUser()
+      listConversations.mockResolvedValue(CONVERSATIONS)
+      getMessageThread.mockResolvedValue([])
+      sendMessage.mockResolvedValue({
+        id: 5,
+        content: 'Assalamualaikum, AC repair lagbe',
+        created_at: '2025-01-16T09:00:00.000Z',
+      })
+      const user = userEvent.setup()
+
+      renderChats('/chats?with=99&providerId=9&name=Salam+Hossain')
+      await screen.findByText('Salam Hossain')
+
+      await user.type(screen.getByPlaceholderText(/type a message/i), 'Assalamualaikum, AC repair lagbe')
+      await user.click(screen.getByRole('button', { name: /^send$/i }))
+
+      expect(sendMessage).toHaveBeenCalledWith({
+        providerId: 9,
+        withUserId: undefined,
+        content: 'Assalamualaikum, AC repair lagbe',
+      })
+      expect(await screen.findByText('Assalamualaikum, AC repair lagbe')).toBeInTheDocument()
+    })
+
+    it('prefers the real conversation over the shell once one already exists for that provider', async () => {
+      // Customer clicks "Send Message" again for someone they've
+      // already messaged before — the real entry (with its real
+      // history) must win over the URL-built placeholder.
+      loginAsUser()
+      listConversations.mockResolvedValue(CONVERSATIONS)
+      getMessageThread.mockResolvedValue(KARIM_THREAD)
+
+      renderChats('/chats?with=1&providerId=1&name=Karim+Uddin')
+
+      expect(await screen.findByText('Ki kaj lagbe?')).toBeInTheDocument()
+      expect(screen.getByText('AC thanda hocche na')).toBeInTheDocument()
+      expect(
+        screen.queryByText(/no messages yet.*say hello to start the conversation/i)
+      ).not.toBeInTheDocument()
+    })
+  })
+
   it('resets the composer draft and dismissed banner when switching threads', async () => {
     loginAsUser()
     listConversations.mockResolvedValue(CONVERSATIONS)
@@ -327,7 +393,14 @@ describe('ChatsPage', () => {
     expect(screen.getByPlaceholderText(/type a message/i)).toHaveValue('')
   })
 
-  it('polls both the conversation list and the open thread every 5 seconds', async () => {
+  it('polls the conversation list every 5 seconds and the open thread on its 20 second fallback', async () => {
+    // Real-time chat pass (useChatThread.js): the open thread is kept
+    // live via WebSocket, with a 20s poll only as a fallback safety
+    // net -- no real socket delivers anything in this test (jsdom's
+    // WebSocket never actually connects to a server), so the fallback
+    // poll is the only thing that can refresh `messages` here. The
+    // conversation list (useConversations.js) is unrelated and still
+    // polls every 5s regardless of the thread's own real-time layer.
     loginAsUser()
     listConversations.mockResolvedValue(CONVERSATIONS)
     getMessageThread.mockResolvedValue(KARIM_THREAD)
@@ -343,15 +416,20 @@ describe('ChatsPage', () => {
       await vi.advanceTimersByTimeAsync(5000)
     })
 
+    // Conversation list ticks on its own 5s cadence...
     expect(listConversations).toHaveBeenCalledTimes(2)
-    expect(getMessageThread).toHaveBeenCalledTimes(2)
+    // ...but 5s isn't enough to reach the thread's 20s fallback yet.
+    expect(getMessageThread).toHaveBeenCalledTimes(1)
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(15000)
     })
 
-    expect(listConversations).toHaveBeenCalledTimes(3)
-    expect(getMessageThread).toHaveBeenCalledTimes(3)
+    // Now at t=20s: the conversation list has ticked five times total
+    // (initial load at t=0, then every 5s: 5s/10s/15s/20s), and the
+    // thread's 20s fallback has fired once.
+    expect(listConversations).toHaveBeenCalledTimes(5)
+    expect(getMessageThread).toHaveBeenCalledTimes(2)
   })
 
   it('auto-scrolls to newest on first load, but a background poll does not yank a reader away from scrolled-up history', async () => {
@@ -388,8 +466,10 @@ describe('ChatsPage', () => {
     ]
     getMessageThread.mockResolvedValue(longerThread)
 
+    // 20s, not 5s: the thread only refreshes here via its 20s fallback
+    // poll (no real WebSocket delivers anything in this test).
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(20000)
     })
     await screen.findByText('Naki asben na?')
 
@@ -416,7 +496,7 @@ describe('ChatsPage', () => {
     ])
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(20000)
     })
     await screen.findByText('Ok, kal dekha hobe.')
 

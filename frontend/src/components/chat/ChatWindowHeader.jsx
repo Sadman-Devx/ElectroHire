@@ -95,8 +95,33 @@ function ReportMenu({ reportProviderId }) {
  * `onBack` is only passed (and only rendered) on mobile, where the
  * chat window replaces the conversation list instead of sitting next
  * to it — see ChatsPage.jsx.
+ *
+ * `connectionStatus` ('connecting' | 'open' | 'closed' | 'error', from
+ * useChatThread's WebSocket) drives the small status pill next to the
+ * name — replaces the old always-"Offline" `conversation.is_online`
+ * placeholder (see ConversationListItem.jsx's doc comment on why that
+ * field was always undefined against the real API) with a signal
+ * that's actually backed by a live connection to the backend.
  */
-function ChatWindowHeader({ conversation, onBack }) {
+function ConnectionStatusPill({ status }) {
+  if (status === 'open') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[var(--color-success)]">
+        <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-success)]" aria-hidden="true" />
+        Live
+      </span>
+    )
+  }
+  if (status === 'connecting') {
+    return <span className="text-[var(--color-text-subtle)]">Connecting…</span>
+  }
+  // 'closed' or 'error' — connectChatSocket is already retrying in the
+  // background (see services/chatSocket.js), so this reads as
+  // transient, not a dead end.
+  return <span className="text-[var(--color-warning,#b45309)]">Reconnecting…</span>
+}
+
+function ChatWindowHeader({ conversation, connectionStatus, onBack }) {
   const reportProviderId =
     conversation.other_user_role === 'provider' ? conversation.provider_id : null
   return (
@@ -130,7 +155,7 @@ function ChatWindowHeader({ conversation, onBack }) {
             {conversation.other_user_name}
           </p>
           <p className="truncate text-xs text-[var(--color-text-subtle)]">
-            {conversation.is_online ? 'Online' : 'Offline'}
+            <ConnectionStatusPill status={connectionStatus} />
             {conversation.other_user_role === 'provider' ? ' · Service provider' : ''}
           </p>
         </div>
