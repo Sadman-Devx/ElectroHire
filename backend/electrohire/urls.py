@@ -28,6 +28,7 @@ urlpatterns = [
     path('api/providers/', include('providers.urls')),
     path('api/ratings/', include('ratings.urls')),  # Dev 2, Day 7
     path('api/reports/', include('reports.urls')),  # Dev 2, Day 8
+    path('api/bookings/', include('bookings.urls')),  # Dev 2, Day 11
 ]
 
 if settings.DEBUG:

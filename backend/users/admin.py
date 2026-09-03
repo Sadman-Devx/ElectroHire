@@ -33,7 +33,7 @@ class UserAdmin(DjangoUserAdmin):
 
 @admin.register(OTP)
 class OTPAdmin(admin.ModelAdmin):
-    list_display = ["email", "otp_code", "created_at", "expires_at", "is_used"]
-    list_filter = ["is_used"]
+    list_display = ["email", "otp_code", "purpose", "created_at", "expires_at", "is_used"]
+    list_filter = ["purpose", "is_used"]
     search_fields = ["email"]
     readonly_fields = ["created_at"]

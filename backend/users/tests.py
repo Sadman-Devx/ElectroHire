@@ -518,3 +518,251 @@ class RefreshTokenViewTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["data"]["email"], "mahmudul@email.com")
+
+        # ════════════════════════════════════════════════════════════════
+# Dev 2, Day 11 — POST /api/auth/forgot-password/
+# ════════════════════════════════════════════════════════════════
+class ForgotPasswordAPITests(APITestCase):
+    def setUp(self):
+        self.url = reverse("users:forgot-password")
+        self.user = User.objects.create_user(
+            email="mahmudul@email.com",
+            password="oldpassword123",
+            name="Mahmudul Hasan",
+            phone="01712345678",
+            role="user",
+            is_active=True,
+            verified=True,
+        )
+
+    def test_forgot_password_verified_account_creates_reset_otp_and_emails_it(self):
+        response = self.client.post(
+            self.url, {"email": "mahmudul@email.com"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], "success")
+
+        otp = OTP.objects.get(email="mahmudul@email.com", purpose=OTP.PURPOSE_PASSWORD_RESET)
+        self.assertEqual(len(otp.otp_code), 6)
+        self.assertFalse(otp.is_used)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(otp.otp_code, mail.outbox[0].body)
+
+    def test_forgot_password_unknown_email_returns_same_generic_message_no_email_sent(self):
+        response = self.client.post(
+            self.url, {"email": "nobody@email.com"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("If an account exists", response.json()["message"])
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertFalse(OTP.objects.filter(email="nobody@email.com").exists())
+
+    def test_forgot_password_unverified_account_returns_same_generic_message_no_email_sent(self):
+        User.objects.create_user(
+            email="pending@email.com",
+            password="whatever123",
+            name="Pending User",
+            phone="01812345678",
+            role="user",
+            is_active=False,
+            verified=False,
+        )
+
+        response = self.client.post(
+            self.url, {"email": "pending@email.com"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("If an account exists", response.json()["message"])
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_forgot_password_invalidates_previous_unused_reset_otp(self):
+        first_response = self.client.post(
+            self.url, {"email": "mahmudul@email.com"}, format="json"
+        )
+        first_otp = OTP.objects.get(
+            email="mahmudul@email.com", purpose=OTP.PURPOSE_PASSWORD_RESET
+        )
+        self.assertFalse(first_otp.is_used)
+
+        self.client.post(self.url, {"email": "mahmudul@email.com"}, format="json")
+
+        first_otp.refresh_from_db()
+        self.assertTrue(first_otp.is_used)
+        self.assertEqual(
+            OTP.objects.filter(
+                email="mahmudul@email.com",
+                purpose=OTP.PURPOSE_PASSWORD_RESET,
+                is_used=False,
+            ).count(),
+            1,
+        )
+
+
+# ════════════════════════════════════════════════════════════════
+# Dev 2, Day 11 — POST /api/auth/reset-password/
+# ════════════════════════════════════════════════════════════════
+class ResetPasswordAPITests(APITestCase):
+    def setUp(self):
+        self.url = reverse("users:reset-password")
+        self.user = User.objects.create_user(
+            email="mahmudul@email.com",
+            password="oldpassword123",
+            name="Mahmudul Hasan",
+            phone="01712345678",
+            role="user",
+            is_active=True,
+            verified=True,
+        )
+        self.otp = OTP.create_for_email(
+            "mahmudul@email.com", purpose=OTP.PURPOSE_PASSWORD_RESET
+        )
+
+    def test_reset_password_success_changes_password(self):
+        response = self.client.post(
+            self.url,
+            {
+                "email": "mahmudul@email.com",
+                "otp": self.otp.otp_code,
+                "new_password": "brandnewpassword456",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("brandnewpassword456"))
+        self.assertFalse(self.user.check_password("oldpassword123"))
+
+    def test_reset_password_consumes_otp(self):
+        self.client.post(
+            self.url,
+            {
+                "email": "mahmudul@email.com",
+                "otp": self.otp.otp_code,
+                "new_password": "brandnewpassword456",
+            },
+            format="json",
+        )
+        self.otp.refresh_from_db()
+        self.assertTrue(self.otp.is_used)
+
+    def test_reset_password_wrong_otp_rejected(self):
+        response = self.client.post(
+            self.url,
+            {
+                "email": "mahmudul@email.com",
+                "otp": "000000",
+                "new_password": "brandnewpassword456",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["message"], "Invalid or expired OTP")
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("oldpassword123"))
+
+    def test_reset_password_expired_otp_rejected(self):
+        self.otp.expires_at = timezone.now() - timezone.timedelta(minutes=1)
+        self.otp.save(update_fields=["expires_at"])
+
+        response = self.client.post(
+            self.url,
+            {
+                "email": "mahmudul@email.com",
+                "otp": self.otp.otp_code,
+                "new_password": "brandnewpassword456",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_reset_password_signup_otp_cannot_be_used(self):
+        # An OTP issued for signup verification must not double as a
+        # password-reset code (OTP.purpose isolation).
+        signup_otp = OTP.create_for_email(
+            "mahmudul@email.com", purpose=OTP.PURPOSE_SIGNUP
+        )
+
+        response = self.client.post(
+            self.url,
+            {
+                "email": "mahmudul@email.com",
+                "otp": signup_otp.otp_code,
+                "new_password": "brandnewpassword456",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_reset_password_weak_password_rejected(self):
+        response = self.client.post(
+            self.url,
+            {
+                "email": "mahmudul@email.com",
+                "otp": self.otp.otp_code,
+                "new_password": "123",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+# ════════════════════════════════════════════════════════════════
+# Dev 2, Day 11 — DELETE /api/auth/account/
+# ════════════════════════════════════════════════════════════════
+class AccountDeleteAPITests(APITestCase):
+    def setUp(self):
+        self.url = reverse("users:account-delete")
+        self.user = User.objects.create_user(
+            email="mahmudul@email.com",
+            password="strongpassword123",
+            name="Mahmudul Hasan",
+            phone="01712345678",
+            role="user",
+            is_active=True,
+            verified=True,
+        )
+        login = self.client.post(
+            reverse("users:login"),
+            {"email": "mahmudul@email.com", "password": "strongpassword123"},
+            format="json",
+        )
+        self.access_token = login.json()["data"]["access_token"]
+
+    def _auth_delete(self, payload):
+        return self.client.delete(
+            self.url,
+            payload,
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {self.access_token}",
+        )
+
+    def test_delete_requires_authentication(self):
+        response = self.client.delete(
+            self.url, {"password": "strongpassword123"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_delete_wrong_password_rejected_account_kept(self):
+        response = self._auth_delete({"password": "wrongpassword"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["message"], "Incorrect password")
+        self.assertTrue(User.objects.filter(email="mahmudul@email.com").exists())
+
+    def test_delete_correct_password_removes_account(self):
+        response = self._auth_delete({"password": "strongpassword123"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(User.objects.filter(email="mahmudul@email.com").exists())
+
+    def test_delete_cascades_provider_profile(self):
+        from providers.models import Provider
+
+        Provider.objects.create(user=self.user, area="Dhanmondi", experience=5)
+        self._auth_delete({"password": "strongpassword123"})
+
+        self.assertFalse(Provider.objects.filter(user_id=self.user.id).exists())

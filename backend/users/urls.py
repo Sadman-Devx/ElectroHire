@@ -1,11 +1,14 @@
 from django.urls import path
 
 from .views import (
+    AccountDeleteView,
+    ForgotPasswordView,
     LoginView,
     MeView,
     RefreshTokenView,
     RegisterView,
     ResendOTPView,
+    ResetPasswordView,
     VerifyOTPView,
 )
 
@@ -19,4 +22,8 @@ urlpatterns = [
     # --- Day 9, Dev 1 ---
     path("refresh/", RefreshTokenView.as_view(), name="refresh"),
     path("me/", MeView.as_view(), name="me"),
+    # --- Day 11, Dev 2 --- Forgot/Reset Password + Account Delete
+    path("forgot-password/", ForgotPasswordView.as_view(), name="forgot-password"),
+    path("reset-password/", ResetPasswordView.as_view(), name="reset-password"),
+    path("account/", AccountDeleteView.as_view(), name="account-delete"),
 ]
