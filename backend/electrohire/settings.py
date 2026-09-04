@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     'contacts',
     'ratings',
     'reports',
+    'bookings',  # Day 11, Dev 2 — Provider Booking System
     'core',
 ]
 

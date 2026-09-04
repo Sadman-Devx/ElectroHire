@@ -33,3 +33,29 @@ def send_otp_email(email, otp_code):
         recipient_list=[email],
         fail_silently=False,
     )
+
+
+def send_password_reset_email(email, otp_code):
+    """
+    Sends the password-reset OTP email (ForgotPasswordView). Same
+    console-backend delivery as send_otp_email above — kept as a
+    separate function (not a shared one with a `purpose` argument) so
+    the subject/wording for "someone is trying to reset your password"
+    reads distinctly from "verify your new signup" and can be edited
+    independently later without a conditional in one function.
+    """
+    expiry_minutes = getattr(settings, "OTP_EXPIRY_MINUTES", 5)
+    subject = "Your ElectroHire password reset code"
+    message = (
+        f"Your ElectroHire password reset code is: {otp_code}\n"
+        f"This code expires in {expiry_minutes} minutes.\n\n"
+        f"If you didn't request a password reset, you can safely ignore "
+        f"this email — your password will not be changed."
+    )
+    send_mail(
+        subject=subject,
+        message=message,
+        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@electrohire.com"),
+        recipient_list=[email],
+        fail_silently=False,
+    )

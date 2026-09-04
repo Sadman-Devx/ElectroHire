@@ -49,7 +49,8 @@ class User(AbstractUser):
 
 class OTP(models.Model):
     """
-    One-time-password for email verification during signup.
+    One-time-password for email verification during signup, and (added
+    for the Forgot/Reset Password feature) for password-reset requests.
 
     Field set: otp_code, email, expires_at (per the schedule), plus
     created_at + is_used — both devs independently landed on the same
@@ -61,10 +62,32 @@ class OTP(models.Model):
     `secrets` instead of `random` — OTP generation is a security
     control, not a cosmetic feature — and with old-OTP invalidation
     added so a stale code can't be reused once a fresh one is issued.
+
+    `purpose` (added alongside Forgot/Reset Password): the signup-verify
+    flow (VerifyOTPView) and the password-reset flow (ResetPasswordView)
+    now both create OTP rows against the same email, and a code issued
+    for one purpose must never verify the other -- e.g. a signup OTP a
+    user never used should not be usable to reset their password later.
+    Kept as a field on this same model rather than a second table
+    because every other field (email, otp_code, expires_at, is_used)
+    is identical between the two flows; only which purpose a given code
+    is valid for differs. Defaults to PURPOSE_SIGNUP so the pre-existing
+    seed_test_otp command and any already-issued rows keep working
+    unchanged.
     """
+
+    PURPOSE_SIGNUP = "signup"
+    PURPOSE_PASSWORD_RESET = "password_reset"
+    PURPOSE_CHOICES = (
+        (PURPOSE_SIGNUP, "Signup Verification"),
+        (PURPOSE_PASSWORD_RESET, "Password Reset"),
+    )
 
     email = models.EmailField(db_index=True)
     otp_code = models.CharField(max_length=6)
+    purpose = models.CharField(
+        max_length=20, choices=PURPOSE_CHOICES, default=PURPOSE_SIGNUP
+    )
     expires_at = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)
     is_used = models.BooleanField(default=False)
@@ -72,7 +95,15 @@ class OTP(models.Model):
     class Meta:
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["email", "is_used"]),
+            # Name matches the auto-generated name Django already picked
+            # in migrations/0002 (users_otp_email_9b592c_idx) — kept
+            # verbatim (not renamed to an explicit name) so this edit
+            # doesn't require a spurious rename-index migration op.
+            models.Index(fields=["email", "is_used"], name="users_otp_email_9b592c_idx"),
+            models.Index(
+                fields=["email", "purpose", "is_used"],
+                name="users_otp_email_purpose_idx",
+            ),
         ]
 
     def is_expired(self):
@@ -87,18 +118,25 @@ class OTP(models.Model):
         return "".join(str(secrets.randbelow(10)) for _ in range(length))
 
     @classmethod
-    def create_for_email(cls, email, ttl_minutes=None):
+    def create_for_email(cls, email, ttl_minutes=None, purpose=PURPOSE_SIGNUP):
         ttl_minutes = ttl_minutes or getattr(settings, "OTP_EXPIRY_MINUTES", 5)
 
-        # Invalidate any previous unused OTPs for this email first, so
-        # there's never more than one *valid* code per email at a time.
-        cls.objects.filter(email=email, is_used=False).update(is_used=True)
+        # Invalidate any previous unused OTPs for this email *and this
+        # purpose* first, so there's never more than one valid code per
+        # (email, purpose) pair at a time. Scoped by purpose (not just
+        # email) so requesting a password-reset code doesn't silently
+        # burn a still-valid signup-verification code the user hasn't
+        # used yet, and vice versa.
+        cls.objects.filter(email=email, purpose=purpose, is_used=False).update(
+            is_used=True
+        )
 
         return cls.objects.create(
             email=email,
             otp_code=cls.generate_code(),
+            purpose=purpose,
             expires_at=timezone.now() + timedelta(minutes=ttl_minutes),
         )
 
     def __str__(self):
-        return f"{self.email} -> {self.otp_code}"
+        return f"{self.email} -> {self.otp_code} ({self.purpose})"
