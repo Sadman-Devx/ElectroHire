@@ -6,7 +6,7 @@ import { MemoryRouter } from 'react-router-dom'
 import App from '@/App'
 import { AuthProvider } from '@/context/AuthContext'
 import { saveSession, getSession } from '@/services/tokenStorage'
-import { getMyProfile } from '@/services/authService'
+import { getMyProfile, deleteAccount, changePassword } from '@/services/authService'
 import { getMyRatings } from '@/services/ratingService'
 import { getContactHistory } from '@/services/contactService'
 
@@ -18,6 +18,8 @@ import { getContactHistory } from '@/services/contactService'
 // affecting the others.
 vi.mock('@/services/authService', () => ({
   getMyProfile: vi.fn(),
+  deleteAccount: vi.fn(),
+  changePassword: vi.fn(),
 }))
 vi.mock('@/services/ratingService', () => ({
   getMyRatings: vi.fn(),
@@ -85,6 +87,8 @@ beforeEach(() => {
   getMyProfile.mockReset()
   getMyRatings.mockReset()
   getContactHistory.mockReset()
+  deleteAccount.mockReset()
+  changePassword.mockReset()
 })
 
 afterEach(() => {
@@ -201,5 +205,202 @@ describe('AccountPage', () => {
       'href',
       '/provider/dashboard'
     )
+  })
+
+  it('links My Bookings to /bookings', async () => {
+    loginAsUser()
+    getMyProfile.mockResolvedValue(PROFILE)
+    getMyRatings.mockResolvedValue([])
+    getContactHistory.mockResolvedValue([])
+
+    renderAccount()
+    await screen.findByRole('heading', { name: /my account/i })
+
+    expect(screen.getByRole('link', { name: /my bookings/i })).toHaveAttribute('href', '/bookings')
+  })
+})
+
+// Day 11: Delete account — DELETE /api/auth/account/ via
+// DeleteAccountSection.jsx / useDeleteAccount.js.
+describe('AccountPage — Delete account', () => {
+  beforeEach(() => {
+    loginAsUser()
+    getMyProfile.mockResolvedValue(PROFILE)
+    getMyRatings.mockResolvedValue([])
+    getContactHistory.mockResolvedValue([])
+  })
+
+  async function openDeleteDialog(user) {
+    renderAccount()
+    await screen.findByRole('heading', { name: /my account/i })
+    await user.click(screen.getByRole('button', { name: /delete my account/i }))
+    expect(await screen.findByRole('heading', { name: /delete your account\?/i })).toBeInTheDocument()
+  }
+
+  it('opens a confirmation dialog asking for the current password', async () => {
+    const user = userEvent.setup()
+    await openDeleteDialog(user)
+
+    expect(screen.getByLabelText(/current password/i)).toBeInTheDocument()
+    expect(deleteAccount).not.toHaveBeenCalled()
+  })
+
+  it('shows a validation error and does not call the API for an empty password', async () => {
+    const user = userEvent.setup()
+    await openDeleteDialog(user)
+
+    await user.click(screen.getByRole('button', { name: /^delete account$/i }))
+
+    // Exact string match, not a loose /enter your current password/i
+    // regex — the Dialog's own description sentence ("Enter your
+    // current password to confirm. This cannot be undone.") contains
+    // the same words as the field's validation error, so a substring
+    // match would ambiguously hit both.
+    expect(await screen.findByText('Enter your current password to confirm')).toBeInTheDocument()
+    expect(deleteAccount).not.toHaveBeenCalled()
+  })
+
+  it('deletes the account, clears the session, and redirects to the home page', async () => {
+    deleteAccount.mockResolvedValue({ status: 'success', message: 'Account deleted' })
+    const user = userEvent.setup()
+    await openDeleteDialog(user)
+
+    await user.type(screen.getByLabelText(/current password/i), 'correct-password')
+    await user.click(screen.getByRole('button', { name: /^delete account$/i }))
+
+    expect(deleteAccount).toHaveBeenCalledWith({ password: 'correct-password' })
+
+    // Session cleared (useDeleteAccount calls AuthContext's logout()
+    // internally) and redirected all the way to the public Home page.
+    expect(await screen.findByRole('button', { name: /^log in$/i })).toBeInTheDocument()
+    expect(getSession()).toBeNull()
+  })
+
+  it('shows the backend error (e.g. wrong password) and keeps the dialog open without logging out', async () => {
+    const error = new Error('Incorrect password')
+    error.status = 400
+    deleteAccount.mockRejectedValue(error)
+    const user = userEvent.setup()
+    await openDeleteDialog(user)
+
+    await user.type(screen.getByLabelText(/current password/i), 'wrong-password')
+    await user.click(screen.getByRole('button', { name: /^delete account$/i }))
+
+    expect(await screen.findByText(/incorrect password/i)).toBeInTheDocument()
+    // Still signed in — the dialog is still open with the account intact.
+    expect(screen.getByRole('heading', { name: /delete your account\?/i })).toBeInTheDocument()
+    expect(getSession()).not.toBeNull()
+  })
+
+  it('closes the dialog without deleting when Cancel is clicked', async () => {
+    const user = userEvent.setup()
+    await openDeleteDialog(user)
+
+    await user.type(screen.getByLabelText(/current password/i), 'correct-password')
+    await user.click(screen.getByRole('button', { name: /^cancel$/i }))
+
+    expect(screen.queryByRole('heading', { name: /delete your account\?/i })).not.toBeInTheDocument()
+    expect(deleteAccount).not.toHaveBeenCalled()
+  })
+})
+
+// Day 12: Change Password — POST /api/auth/change-password/ via
+// ChangePasswordSection.jsx / useChangePassword.js.
+describe('AccountPage — Change password', () => {
+  beforeEach(() => {
+    loginAsUser()
+    getMyProfile.mockResolvedValue(PROFILE)
+    getMyRatings.mockResolvedValue([])
+    getContactHistory.mockResolvedValue([])
+  })
+
+  async function openChangePasswordDialog(user) {
+    renderAccount()
+    await screen.findByRole('heading', { name: /my account/i })
+    await user.click(screen.getByRole('button', { name: /^change password$/i }))
+    expect(await screen.findByRole('heading', { name: /change your password/i })).toBeInTheDocument()
+  }
+
+  it('opens a dialog asking for the current and new password', async () => {
+    const user = userEvent.setup()
+    await openChangePasswordDialog(user)
+
+    expect(screen.getByLabelText(/current password/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/^new password$/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/confirm new password/i)).toBeInTheDocument()
+    expect(changePassword).not.toHaveBeenCalled()
+  })
+
+  it('shows validation errors and does not call the API for empty fields', async () => {
+    const user = userEvent.setup()
+    await openChangePasswordDialog(user)
+
+    await user.click(screen.getByRole('button', { name: /^update password$/i }))
+
+    expect(await screen.findByText('Enter your current password to confirm')).toBeInTheDocument()
+    expect(changePassword).not.toHaveBeenCalled()
+  })
+
+  it('rejects a new password that does not match its confirmation', async () => {
+    const user = userEvent.setup()
+    await openChangePasswordDialog(user)
+
+    await user.type(screen.getByLabelText(/current password/i), 'oldpassword123')
+    await user.type(screen.getByLabelText(/^new password$/i), 'newpassword123')
+    await user.type(screen.getByLabelText(/confirm new password/i), 'somethingelse123')
+    await user.click(screen.getByRole('button', { name: /^update password$/i }))
+
+    expect(await screen.findByText(/passwords do not match/i)).toBeInTheDocument()
+    expect(changePassword).not.toHaveBeenCalled()
+  })
+
+  it('changes the password and shows a success state without logging out', async () => {
+    changePassword.mockResolvedValue({ status: 'success', message: 'Password changed successfully' })
+    const user = userEvent.setup()
+    await openChangePasswordDialog(user)
+
+    await user.type(screen.getByLabelText(/current password/i), 'oldpassword123')
+    await user.type(screen.getByLabelText(/^new password$/i), 'newpassword123')
+    await user.type(screen.getByLabelText(/confirm new password/i), 'newpassword123')
+    await user.click(screen.getByRole('button', { name: /^update password$/i }))
+
+    expect(changePassword).toHaveBeenCalledWith({
+      currentPassword: 'oldpassword123',
+      newPassword: 'newpassword123',
+    })
+    expect(await screen.findByText(/your password has been changed successfully/i)).toBeInTheDocument()
+
+    // Still signed in — changing password never clears the session.
+    expect(getSession()).not.toBeNull()
+
+    await user.click(screen.getByRole('button', { name: /^done$/i }))
+    expect(screen.queryByRole('heading', { name: /change your password|password changed/i })).not.toBeInTheDocument()
+  })
+
+  it('shows the backend error (e.g. wrong current password) and keeps the dialog open', async () => {
+    const error = new Error('Current password is incorrect')
+    error.status = 400
+    changePassword.mockRejectedValue(error)
+    const user = userEvent.setup()
+    await openChangePasswordDialog(user)
+
+    await user.type(screen.getByLabelText(/current password/i), 'wrong-password')
+    await user.type(screen.getByLabelText(/^new password$/i), 'newpassword123')
+    await user.type(screen.getByLabelText(/confirm new password/i), 'newpassword123')
+    await user.click(screen.getByRole('button', { name: /^update password$/i }))
+
+    expect(await screen.findByText(/current password is incorrect/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /change your password/i })).toBeInTheDocument()
+  })
+
+  it('closes the dialog without submitting when Cancel is clicked', async () => {
+    const user = userEvent.setup()
+    await openChangePasswordDialog(user)
+
+    await user.type(screen.getByLabelText(/current password/i), 'oldpassword123')
+    await user.click(screen.getByRole('button', { name: /^cancel$/i }))
+
+    expect(screen.queryByRole('heading', { name: /change your password/i })).not.toBeInTheDocument()
+    expect(changePassword).not.toHaveBeenCalled()
   })
 })

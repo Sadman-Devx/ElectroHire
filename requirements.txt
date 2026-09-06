@@ -1,14 +1,30 @@
-asgiref==3.12.1
+# ElectroHire backend — direct dependencies, pinned to the versions this
+# project has been built and tested against (Day 13 security audit: no
+# requirements.txt existed before this, so a fresh `pip install` had no
+# guarantee of installing the same versions this code was written
+# against, or of avoiding a version with a since-fixed vulnerability).
+#
+# Install with:
+#   pip install -r requirements.txt
+#
+# This lists direct, top-level dependencies only (not every transitive
+# package pip resolves underneath them, e.g. asgiref, Twisted, PyJWT,
+# sqlparse) — enough for reproducible, intentional upgrades. Re-check
+# this list periodically (`pip list --outdated`, and for anything
+# security-specific, https://github.com/advisories) rather than
+# treating it as "set once and forget."
+
 Django==6.0.7
+djangorestframework==3.18.0
+djangorestframework-simplejwt==5.5.1
 django-cors-headers==4.9.0
-djangorestframework==3.17.1
-djangorestframework_simplejwt==5.5.1
-pillow==12.3.0
-psycopg2-binary==2.9.12
-PyJWT==2.13.0
-python-dotenv==1.2.2
-sqlparse==0.5.5
-tzdata==2026.3
 channels==4.3.2
 daphne==4.2.3
-channels_redis==4.3.0
+pillow==12.3.0
+python-dotenv==1.2.3
+
+# Only needed once REDIS_URL is actually set (production, or local dev
+# against a real Redis) — see settings.py's own comments on
+# CHANNEL_LAYERS/CACHES for what this backs.
+channels-redis==4.3.0
+redis==6.4.0

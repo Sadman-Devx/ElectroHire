@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     AccountDeleteView,
+    ChangePasswordView,
     ForgotPasswordView,
     LoginView,
     MeView,
@@ -26,4 +27,8 @@ urlpatterns = [
     path("forgot-password/", ForgotPasswordView.as_view(), name="forgot-password"),
     path("reset-password/", ResetPasswordView.as_view(), name="reset-password"),
     path("account/", AccountDeleteView.as_view(), name="account-delete"),
+    # --- Day 12 --- Change Password (logged-in, knows current password)
+    path(
+        "change-password/", ChangePasswordView.as_view(), name="change-password"
+    ),
 ]

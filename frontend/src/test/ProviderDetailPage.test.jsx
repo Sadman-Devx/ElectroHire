@@ -8,13 +8,13 @@ import { AuthProvider } from '@/context/AuthContext'
 import { saveSession } from '@/services/tokenStorage'
 import { getProviderDetail } from '@/services/providerService'
 import { createContact, checkContactEligibility } from '@/services/contactService'
-import { sendMessage } from '@/services/chatService'
+import { listConversations, getMessageThread } from '@/services/chatService'
 
 // Both services make real axios/HTTP calls in production; mocking
 // them lets us drive ProviderDetailPage -> useProviderDetail /
-// useContactProvider / useSendFirstMessage -> service layer
-// end-to-end while fully controlling the "backend" — same approach
-// ProvidersPage.test.jsx already uses for getProviders/getCategories.
+// useContactProvider -> service layer end-to-end while fully
+// controlling the "backend" — same approach ProvidersPage.test.jsx
+// already uses for getProviders/getCategories.
 vi.mock('@/services/providerService', () => ({
   getProviderDetail: vi.fn(),
 }))
@@ -30,10 +30,18 @@ vi.mock('@/services/contactService', () => ({
   checkContactEligibility: vi.fn(),
 }))
 
-// "Send Message" now sends a real first message via chatService (see
-// StickyContactCard.jsx's doc comment for why) instead of only
-// logging a contact — mocked the same way ChatsPage.test.jsx mocks it.
+// Bug fix (found during Day 11 pre-build baseline audit — see
+// StickyContactCard.jsx's own doc comment): "Send Message" no longer
+// composes a first message inline on this page; it navigates straight
+// into ChatsPage (route /chats), same as the real app does. Mocked
+// here the same way ChatsPage.test.jsx mocks chatService, only so
+// that navigating there in a test resolves to real page content
+// instead of hanging on a real network call this test environment
+// has no backend for — no message is ever sent from this page anymore,
+// so sendMessage itself doesn't need a mock in this file.
 vi.mock('@/services/chatService', () => ({
+  listConversations: vi.fn(),
+  getMessageThread: vi.fn(),
   sendMessage: vi.fn(),
 }))
 
@@ -83,11 +91,18 @@ beforeEach(() => {
   localStorage.clear()
   getProviderDetail.mockReset()
   createContact.mockReset()
-  sendMessage.mockReset()
   checkContactEligibility.mockReset()
+  listConversations.mockReset()
+  getMessageThread.mockReset()
   // Default: eligible. Individual tests that specifically exercise the
   // disabled/ineligible state override this per-test.
   checkContactEligibility.mockResolvedValue({ has_contacted: true, provider_id: 1 })
+  // Default: no existing conversation with anyone — the "Send Message"
+  // navigation tests below rely on ChatsPage building a *pending*
+  // conversation shell purely from the URL's ?with=/&providerId=/&name=
+  // params (see ChatsPage.jsx's doc comment), not from a real match here.
+  listConversations.mockResolvedValue([])
+  getMessageThread.mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -193,29 +208,33 @@ describe('ProviderDetailPage', () => {
     await user.click(screen.getByRole('button', { name: /send message/i }))
 
     expect(await screen.findByRole('heading', { name: /welcome back/i })).toBeInTheDocument()
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(listConversations).not.toHaveBeenCalled()
   })
 
-  it('sends a real first message and links straight into the conversation', async () => {
+  // Bug fix (Day 11 pre-build baseline audit): this test used to drive
+  // an inline "compose the first message right here" flow that
+  // StickyContactCard.jsx no longer has — per that component's own doc
+  // comment, "Send Message" now routes straight into ChatsPage instead,
+  // where the customer actually types and sends. Rewritten to assert
+  // that navigation (and the conversation shell it builds) instead of
+  // a flow the component doesn't perform anymore.
+  it('navigates straight into a conversation shell with this provider when Send Message is clicked', async () => {
     loginAsUser()
     getProviderDetail.mockResolvedValue(PROVIDER)
-    sendMessage.mockResolvedValue({ id: 1, content: 'Ki obosthay AC ta?', created_at: '2025-01-15T10:00:00.000Z' })
     const user = userEvent.setup()
 
     renderDetail()
     await screen.findByRole('heading', { name: 'Karim Uddin' })
 
     await user.click(screen.getByRole('button', { name: /send message/i }))
-    await user.type(
-      screen.getByPlaceholderText(/say hello to karim uddin/i),
-      'Ki obosthay AC ta?'
-    )
-    await user.click(screen.getByRole('button', { name: /^send$/i }))
 
-    expect(sendMessage).toHaveBeenCalledWith({ providerId: 1, content: 'Ki obosthay AC ta?' })
-    expect(await screen.findByText(/your message has been sent to karim uddin/i)).toBeInTheDocument()
-    const conversationLink = screen.getByRole('link', { name: /open the conversation/i })
-    expect(conversationLink).toHaveAttribute('href', '/chats?with=10')
+    // Lands on ChatsPage ("Messages") with a ready composer addressed
+    // to this provider — built purely from the ?with=/&providerId=/&name=
+    // query string StickyContactCard supplies, with no Message row (and
+    // so no real GET /api/contacts/conversations/ match) needed yet.
+    expect(await screen.findByRole('heading', { name: /messages/i })).toBeInTheDocument()
+    expect(await screen.findByText('Karim Uddin')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/type a message/i)).toBeInTheDocument()
   })
 
   it('logs a contact and explains the number is not available yet on "Show Number"', async () => {
@@ -235,22 +254,26 @@ describe('ProviderDetailPage', () => {
     expect(createContact).toHaveBeenCalledWith({ providerId: 1 })
   })
 
-  it('shows a friendly message instead of crashing when messaging is not live yet (404)', async () => {
+  // Bug fix (Day 11 pre-build baseline audit): "messaging fails" is no
+  // longer this page's concern at all — sendMessage() isn't called
+  // here anymore (see the test above), only once the customer is
+  // already on ChatsPage and types something. That failure mode is
+  // covered by ChatsPage.test.jsx instead. What *is* still this page's
+  // job: not sending anyone into a conversation with no one on the
+  // other end — covered below by the disabled-button case.
+  it('disables Send Message (with an explanatory title) when the provider has no linked user account', async () => {
     loginAsUser()
-    getProviderDetail.mockResolvedValue(PROVIDER)
-    const error = new Error('Something went wrong. Please try again.')
-    error.status = 404
-    sendMessage.mockRejectedValue(error)
-    const user = userEvent.setup()
+    getProviderDetail.mockResolvedValue({ ...PROVIDER, user_id: undefined })
 
     renderDetail()
     await screen.findByRole('heading', { name: 'Karim Uddin' })
 
-    await user.click(screen.getByRole('button', { name: /send message/i }))
-    await user.type(screen.getByPlaceholderText(/say hello to karim uddin/i), 'Hi there')
-    await user.click(screen.getByRole('button', { name: /^send$/i }))
-
-    expect(await screen.findByText(/messaging isn't available yet/i)).toBeInTheDocument()
+    const sendMessageButton = screen.getByRole('button', { name: /send message/i })
+    expect(sendMessageButton).toBeDisabled()
+    expect(sendMessageButton).toHaveAttribute(
+      'title',
+      'Messaging is not available for this provider yet.'
+    )
   })
 
   it('navigates to the Report Provider page when Report this provider is clicked', async () => {
@@ -337,50 +360,17 @@ describe('ProviderDetailPage', () => {
     expect(providersLinks[0]).toHaveAttribute('href', '/providers')
   })
 
-  it('disables Cancel and Send while the first message is in flight', async () => {
-    loginAsUser()
-    getProviderDetail.mockResolvedValue(PROVIDER)
-    let resolveSend
-    sendMessage.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveSend = resolve
-        })
-    )
-    const user = userEvent.setup()
-
-    renderDetail()
-    await screen.findByRole('heading', { name: 'Karim Uddin' })
-
-    await user.click(screen.getByRole('button', { name: /send message/i }))
-    await user.type(screen.getByPlaceholderText(/say hello to karim uddin/i), 'Hi there')
-    await user.click(screen.getByRole('button', { name: /^send$/i }))
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /sending/i })).toBeDisabled()
-    })
-    expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled()
-
-    resolveSend({ id: 1, content: 'Hi there', created_at: '2025-01-15T10:00:00.000Z' })
-    expect(await screen.findByText(/your message has been sent to karim uddin/i)).toBeInTheDocument()
-  })
-
-  it('shows the contact options again without a conversation link when user_id is unavailable', async () => {
-    loginAsUser()
-    getProviderDetail.mockResolvedValue({ ...PROVIDER, user_id: undefined })
-    sendMessage.mockResolvedValue({ id: 1, content: 'Hi there', created_at: '2025-01-15T10:00:00.000Z' })
-    const user = userEvent.setup()
-
-    renderDetail()
-    await screen.findByRole('heading', { name: 'Karim Uddin' })
-
-    await user.click(screen.getByRole('button', { name: /send message/i }))
-    await user.type(screen.getByPlaceholderText(/say hello to karim uddin/i), 'Hi there')
-    await user.click(screen.getByRole('button', { name: /^send$/i }))
-
-    expect(await screen.findByText(/your message has been sent to karim uddin/i)).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /open the conversation/i })).not.toBeInTheDocument()
-  })
+  // Bug fix (Day 11 pre-build baseline audit): both of the tests that
+  // used to live here ("disables Cancel and Send while the first
+  // message is in flight" / "shows the contact options again without
+  // a conversation link when user_id is unavailable") exercised the
+  // same removed inline-composer flow the two fixes above already
+  // explain — there is no in-flight loading state to assert on this
+  // page anymore (the navigation is synchronous), and the "user_id
+  // unavailable" case is now covered by the disabled-button test
+  // above instead of a "sent, but no link" state that no longer
+  // exists. Not replaced 1:1 — see git history for the removed
+  // versions if the old inline-compose behavior is ever needed again.
 
   // Day 10, Dev 1 bug fix: this page always rendered the public
   // marketing Navbar regardless of auth state — its "#anchor" links

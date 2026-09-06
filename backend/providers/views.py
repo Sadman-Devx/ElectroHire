@@ -9,6 +9,7 @@ from contacts.serializers import MessageListItemSerializer
 from core.response import error_response, first_error_message, success_response
 from ratings.models import Rating
 from ratings.serializers import ProviderRatingListItemSerializer
+from users.models import User
 
 from .models import Provider
 from .serializers import (
@@ -28,12 +29,30 @@ class ProviderProfileSetupView(APIView):
     - Multiple Categories Accept করে
     - Photo Upload Handle করে (MEDIA_ROOT)
     - Status 'pending' Set করে on every write (create or edit/resubmit)
+
+    Security hardening (Day 13 audit): this used to accept the request
+    from *any* authenticated account regardless of the role chosen at
+    signup — a "user"-role account could POST here directly (bypassing
+    the frontend's role selector entirely, which is only a UI hint,
+    not an enforced boundary) and end up with a real Provider row +
+    every provider-only capability (GET /api/bookings/provider/,
+    the provider dashboard, etc.) despite never having signed up as
+    one. Now requires request.user.role == User.ROLE_PROVIDER, the
+    same role the frontend's signup form already asks about — a "user"
+    -role account gets a clear 403 explaining they'd need a provider
+    account instead of silently succeeding into an inconsistent state.
     """
 
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
+        if request.user.role != User.ROLE_PROVIDER:
+            return error_response(
+                "Only accounts registered as a provider can set up a provider profile.",
+                status_code=403,
+            )
+
         serializer = ProviderProfileSetupSerializer(
             data=request.data, context={"request": request}
         )

@@ -14,20 +14,68 @@ import os
 import sys
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+from dotenv import load_dotenv
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# ── Security hardening (Day 13 audit) ───────────────────────────────
+# Every setting below this point that used to be a hardcoded literal
+# (SECRET_KEY, DEBUG, ALLOWED_HOSTS, CORS_ALLOWED_ORIGINS) now comes
+# from the environment instead — a real deployment target's SECRET_KEY
+# and DEBUG=False should never sit in source control where anyone with
+# repo access (or a leaked git history) can read them. load_dotenv()
+# reads backend/.env if present (see .env.example for the full list of
+# variables this project reads, with local-dev-safe example values) —
+# .env itself is already in .gitignore, so copying .env.example -> .env
+# and filling in real values there never risks a commit.
+load_dotenv(BASE_DIR / ".env")
+
+
+def _env_bool(name, default):
+    """'True'/'true'/'1' -> True, everything else (including unset) -> default's own bool."""
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ("true", "1", "yes")
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-5+o88sis_b0!*x)=qjcd(7jp)byp!w8c4^10pfye^&=3oi%trv'
+# Defaults to secure-by-default (DEBUG=False) when unset, exactly like
+# Django's own deployment checklist recommends — a forgotten/missing
+# .env in a real deployment then fails closed (no debug info leaked)
+# instead of failing open.
+DEBUG = _env_bool("DEBUG", default=False)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+SECRET_KEY = os.environ.get("SECRET_KEY", "")
+if not SECRET_KEY:
+    if DEBUG:
+        # Convenience fallback so a fresh clone with no .env yet still
+        # boots for local exploration — replace this by actually
+        # setting SECRET_KEY in .env (see .env.example) before doing
+        # anything real with it. The `django-insecure-` prefix is
+        # Django's own convention for a key that must never reach
+        # production, which is exactly why DEBUG=False refuses to
+        # fall back to it below.
+        SECRET_KEY = "django-insecure-5+o88sis_b0!*x)=qjcd(7jp)byp!w8c4^10pfye^&=3oi%trv"
+    else:
+        raise ImproperlyConfigured(
+            "SECRET_KEY environment variable must be set when DEBUG=False. "
+            "Copy backend/.env.example to backend/.env and fill in a real, "
+            "unique secret key (e.g. `python -c \"import secrets; "
+            "print(secrets.token_urlsafe(50))\"`)."
+        )
 
-ALLOWED_HOSTS = []
+# Comma-separated in .env, e.g. ALLOWED_HOSTS=api.electrohire.com,electrohire.com
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get("ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+]
 
 
 # Application definition
@@ -77,10 +125,20 @@ ROOT_URLCONF = 'electrohire.urls'
 
 AUTH_USER_MODEL = 'users.User'
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",   # Vite-এর Default Port
-    "http://localhost:3000",
-]
+# Comma-separated in .env, e.g.
+# CORS_ALLOWED_ORIGINS=https://electrohire.com,https://www.electrohire.com
+# Falls back to the two local Vite/CRA dev ports so `manage.py runserver`
+# still works against a local frontend with zero .env setup, same
+# "convenience fallback in DEBUG, explicit in production" pattern
+# SECRET_KEY above uses.
+_cors_origins_env = os.environ.get("CORS_ALLOWED_ORIGINS", "").strip()
+if _cors_origins_env:
+    CORS_ALLOWED_ORIGINS = [origin.strip() for origin in _cors_origins_env.split(",") if origin.strip()]
+else:
+    CORS_ALLOWED_ORIGINS = [
+        "http://localhost:5173",   # Vite-এর Default Port
+        "http://localhost:3000",
+    ]
 
 TEMPLATES = [
     {
@@ -134,6 +192,27 @@ else:
             'BACKEND': 'channels.layers.InMemoryChannelLayer',
         }
     }
+
+# ── Cache (Day 13 addition — backs DRF's request-throttling counters,
+#    see REST_FRAMEWORK below) ───────────────────────────────────────
+# Reuses the same REDIS_URL already read above for the channel layer.
+# LocMemCache (Django's default when CACHES isn't set at all) is
+# per-process — fine for local dev and a single-process deployment,
+# but throttle counts wouldn't be shared across multiple worker
+# processes/machines in a scaled production deployment (each worker
+# would enforce its own separate rate limit instead of one shared
+# one), the exact same caveat REDIS_URL's own comment above already
+# documents for the channel layer. Set REDIS_URL there to fix both at
+# once.
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+        }
+    }
+# else: falls back to Django's built-in LocMemCache default — nothing
+# to configure for local dev.
 
 
 # Database
@@ -199,6 +278,50 @@ SIMPLE_JWT = {
 }
 
 # REST Framework Config
+#
+# ── Security hardening (Day 13 audit) ──────────────────────────────
+# No rate limiting existed anywhere in this project before this —
+# login, OTP verify, forgot/reset-password, and register could all be
+# hit an unlimited number of times per second from a single IP. A
+# 6-digit OTP is only 1,000,000 possibilities; with no throttle at
+# all, brute-forcing one within its 5-minute expiry window (see
+# OTP_EXPIRY_MINUTES below) was a real, practical attack — not a
+# theoretical one. DEFAULT_THROTTLE_CLASSES applies a general
+# per-anon-IP / per-authenticated-user ceiling to *every* view project
+# -wide; the tighter 'login'/'otp'/'register'/'password_reset' scopes
+# below additionally apply to the specific views that set their own
+# throttle_scope (see users/views.py) — both checks run together on
+# those views, whichever is stricter wins.
+#
+# Rates come from THROTTLE_RATES, defined just below: relaxed to None
+# (no limit at all) under `manage.py test`, for the same reason
+# PASSWORD_HASHERS below swaps to a fast hasher under test — hundreds
+# of legitimate, rapid test-only login/OTP calls all issued from the
+# exact same Django test-client "IP" would otherwise start tripping
+# the very limits meant for a real attacker, failing tests for a
+# reason that has nothing to do with what each test is actually
+# checking. ThrottlingTests in users/tests.py verifies the real rates
+# still work, using @override_settings to opt back in for just that
+# one test class.
+if 'test' in sys.argv:
+    THROTTLE_RATES = {
+        'anon': None,
+        'user': None,
+        'login': None,
+        'otp': None,
+        'register': None,
+        'password_reset': None,
+    }
+else:
+    THROTTLE_RATES = {
+        'anon': '200/hour',
+        'user': '2000/hour',
+        'login': '10/min',
+        'otp': '5/min',
+        'register': '10/hour',
+        'password_reset': '5/min',
+    }
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -210,6 +333,11 @@ REST_FRAMEWORK = {
     # core.response.error_response — see core/exceptions.py's docstring
     # for the bug this fixes.
     'EXCEPTION_HANDLER': 'core.exceptions.custom_exception_handler',
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': THROTTLE_RATES,
 }
 
 # Media Files (Photo Upload-এর জন্য)
@@ -229,3 +357,24 @@ else:
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 
 DEFAULT_FROM_EMAIL = 'noreply@electrohire.com'
+
+# ── Production security headers (Day 13 audit) ──────────────────────
+# None of these existed before — fine for local HTTP dev (which is why
+# they're gated behind `not DEBUG`), but a real HTTPS deployment with
+# DEBUG=False left off would otherwise ship with no HSTS, no
+# secure-cookie flag, and no automatic HTTP->HTTPS redirect, meaning a
+# session/JWT-carrying cookie sent once over plain HTTP (e.g. a stale
+# bookmark, a link shared without https://) is interceptable on the
+# wire. Nothing here affects local dev at all: DEBUG defaults True
+# locally (see the top of this file), so this whole block is a no-op
+# until a real deployment sets DEBUG=False in its own .env.
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 60 * 60 * 24 * 30  # 30 days — raise once confident HTTPS is solid
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    # SecurityMiddleware (already in MIDDLEWARE) sends
+    # X-Content-Type-Options: nosniff by default regardless of DEBUG —
+    # nothing to add for that one specifically.

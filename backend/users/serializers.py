@@ -45,12 +45,17 @@ class RegisterSerializer(serializers.ModelSerializer):
         return value
 
     def validate_email(self, value):
-        value = value.strip().lower()
-        existing = User.objects.filter(email__iexact=value).first()
-        if existing and existing.verified:
-            # Matches the API Contract's documented error exactly.
-            raise serializers.ValidationError("Email already exists")
-        return value
+        # Security hardening (Day 13 audit): the "does a *verified*
+        # account already own this email" check used to live here,
+        # raising a distinguishable "Email already exists" error — that
+        # let registration double as an email-enumeration oracle (try
+        # any email, the response tells you whether it's registered).
+        # Moved to RegisterView.post(), which now returns the exact
+        # same generic success response either way — see that view's
+        # own docstring. This only normalizes the value now, the same
+        # "shape only, existence checks belong in the view" split
+        # ForgotPasswordSerializer's own docstring already documents.
+        return value.strip().lower()
 
     def validate_phone(self, value):
         if not value:
@@ -79,9 +84,10 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         # A user may have started signup before and never verified the
         # OTP (closed the tab, OTP expired, etc). Rather than blocking
-        # them with "Email already exists" forever, let them retry —
-        # validate_email() above already refused if the account is
-        # verified, so reaching here means it's safe to reuse the row.
+        # them forever, let them retry — RegisterView.post() already
+        # short-circuited before calling save() at all if a *verified*
+        # account owns this email (see that view's own docstring), so
+        # reaching here means it's safe to reuse this unverified row.
         existing_unverified = User.objects.filter(
             email__iexact=email, verified=False
         ).first()
@@ -203,6 +209,37 @@ class AccountDeleteSerializer(serializers.Serializer):
     """
 
     password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+
+# ── Day 12 ─────────────────────────────────────────────────────────
+class ChangePasswordSerializer(serializers.Serializer):
+    """
+    Backs POST /api/auth/change-password/.
+    Body: {"current_password": "...", "new_password": "..."}
+
+    Not in the API Contract PDF — new feature. The "I know my password
+    and just want to update it" counterpart to Forgot/Reset Password's
+    "I don't know my password anymore" flow (see ChangePasswordView's
+    own docstring for why they intentionally don't share a
+    serializer/view despite both ending in set_password()).
+
+    Only shape-validates (a new password that passes Django's
+    configured AUTH_PASSWORD_VALIDATORS — the same validate_password()
+    call RegisterSerializer.validate_password/ResetPasswordSerializer.
+    validate_new_password already run, so this can't set a weaker
+    password than either of those would have allowed). Whether
+    current_password is actually correct, and whether new_password is
+    just a resubmission of the same password, both need request.user
+    to check — decided in ChangePasswordView, same division of
+    responsibility AccountDeleteSerializer/AccountDeleteView already use.
+    """
+
+    current_password = serializers.CharField(write_only=True, trim_whitespace=False)
+    new_password = serializers.CharField(write_only=True, min_length=8, max_length=128)
+
+    def validate_new_password(self, value):
+        validate_password(value)
+        return value
 
 
 # ── Dev 1, Day 9 ───────────────────────────────────────────────────

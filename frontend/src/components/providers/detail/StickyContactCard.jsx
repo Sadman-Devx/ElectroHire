@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Flag, MessageCircle, Phone, Star } from 'lucide-react'
+import { CalendarClock, Flag, MessageCircle, Phone, Star } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -75,6 +75,18 @@ import { formatMonthYear } from '@/lib/formatDate'
  * handling (EligibilityNotice) is left in place as the backstop, this
  * is purely a UX improvement that avoids sending an ineligible user
  * to the form to begin with.
+ *
+ * "Book Now" — Day 11, Dev 1/3 addition, routing to the new
+ * BookProviderPage (route /providers/:id/book). Same requireAuth()
+ * pattern the other actions use when logged out. Only an *active*
+ * provider can actually be booked (BookingCreateSerializer.
+ * validate_provider_id on the backend), but — same contract gap
+ * StickyContactCard's own NOTE above already documents for phone
+ * numbers — GET /api/providers/{id}/ doesn't expose a `status` field
+ * for this card to check, so the button always renders and a
+ * non-active provider's specific rejection reaches the visitor as
+ * BookProviderPage's own submitError banner instead of being caught
+ * here first.
  */
 function StickyContactCard({ provider }) {
   const { isAuthenticated } = useAuth()
@@ -122,6 +134,11 @@ function StickyContactCard({ provider }) {
     contact('number')
   }
 
+  function handleBookNowClick() {
+    if (!requireAuth()) return
+    navigate(`/providers/${provider.id}/book`)
+  }
+
   function handleBackToOptions() {
     resetContact()
   }
@@ -160,6 +177,15 @@ function StickyContactCard({ provider }) {
             title={canMessage ? undefined : 'Messaging is not available for this provider yet.'}
           >
             <MessageCircle className="h-4 w-4" aria-hidden="true" /> Send Message
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full"
+            disabled={isPending}
+            onClick={handleBookNowClick}
+          >
+            <CalendarClock className="h-4 w-4" aria-hidden="true" /> Book Now
           </Button>
           <Button
             type="button"
