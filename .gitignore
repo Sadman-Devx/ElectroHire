@@ -4,6 +4,20 @@ __pycache__/
 *.pyc
 .env
 
+# Database (
+# file was being committed straight to git, the exact same category of
+# mistake as committing .env: runtime/environment-specific data, not
+# source code)
+*.sqlite3
+*.sqlite3-journal
+db.sqlite3
+
+# User-uploaded media (
+# runtime-generated content a person uploads through the app, not
+# something that belongs in version control. Django recreates this
+# directory automatically on first upload; nothing to pre-create here.)
+backend/media/
+
 # Node
 node_modules/
 dist/
