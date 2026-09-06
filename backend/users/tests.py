@@ -78,17 +78,30 @@ class RegisterAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(User.objects.get(email="karim@email.com").role, "provider")
 
-    def test_duplicate_verified_email_is_rejected(self):
+    # Security hardening (Day 13 audit): this used to assert a
+    # distinguishable "Email already exists" 400 — that let
+    # registration double as an email-enumeration oracle. Now expects
+    # the exact same generic success response a brand-new signup gets,
+    # while confirming neither a duplicate row nor a real OTP email
+    # actually went out (see RegisterView's own docstring).
+    def test_duplicate_verified_email_returns_generic_success_without_side_effects(self):
         User.objects.create_user(
             email="mahmudul@email.com", password="whatever123", name="Existing",
             phone="01911111111", role="user", verified=True,
         )
+        mail.outbox.clear()
 
         response = self.client.post(self.url, VALID_PAYLOAD, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["status"], "error")
-        self.assertEqual(response.json()["message"], "Email already exists")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.json(),
+            {"status": "success", "message": "OTP sent to your email"},
+        )
+        # No duplicate account, and no real OTP email sent to the
+        # actual owner of that address.
+        self.assertEqual(User.objects.filter(email="mahmudul@email.com").count(), 1)
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_duplicate_unverified_email_lets_user_retry_signup(self):
         self.client.post(self.url, VALID_PAYLOAD, format="json")
@@ -766,3 +779,186 @@ class AccountDeleteAPITests(APITestCase):
         self._auth_delete({"password": "strongpassword123"})
 
         self.assertFalse(Provider.objects.filter(user_id=self.user.id).exists())
+
+
+# ════════════════════════════════════════════════════════════════
+# Day 12 — POST /api/auth/change-password/
+# ════════════════════════════════════════════════════════════════
+class ChangePasswordAPITests(APITestCase):
+    def setUp(self):
+        self.url = reverse("users:change-password")
+        self.user = User.objects.create_user(
+            email="mahmudul@email.com",
+            password="oldpassword123",
+            name="Mahmudul Hasan",
+            phone="01712345678",
+            role="user",
+            is_active=True,
+            verified=True,
+        )
+        login = self.client.post(
+            reverse("users:login"),
+            {"email": "mahmudul@email.com", "password": "oldpassword123"},
+            format="json",
+        )
+        self.access_token = login.json()["data"]["access_token"]
+
+    def _auth_change(self, payload):
+        return self.client.post(
+            self.url,
+            payload,
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {self.access_token}",
+        )
+
+    def test_requires_authentication(self):
+        response = self.client.post(
+            self.url,
+            {"current_password": "oldpassword123", "new_password": "brandnewpassword456"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_success_changes_password(self):
+        response = self._auth_change(
+            {"current_password": "oldpassword123", "new_password": "brandnewpassword456"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["message"], "Password changed successfully")
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("brandnewpassword456"))
+        self.assertFalse(self.user.check_password("oldpassword123"))
+
+    def test_wrong_current_password_rejected_password_kept(self):
+        response = self._auth_change(
+            {"current_password": "totallywrong", "new_password": "brandnewpassword456"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["message"], "Current password is incorrect")
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("oldpassword123"))
+
+    def test_new_password_same_as_current_rejected(self):
+        response = self._auth_change(
+            {"current_password": "oldpassword123", "new_password": "oldpassword123"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json()["message"],
+            "New password must be different from your current password",
+        )
+
+    def test_weak_new_password_rejected(self):
+        response = self._auth_change(
+            {"current_password": "oldpassword123", "new_password": "123"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("oldpassword123"))
+
+    def test_missing_fields_returns_400(self):
+        response = self._auth_change({"current_password": "oldpassword123"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_existing_access_token_still_works_after_change(self):
+        # Deliberately no logout/token-blacklist side effect — see
+        # ChangePasswordView's own docstring.
+        self._auth_change(
+            {"current_password": "oldpassword123", "new_password": "brandnewpassword456"}
+        )
+
+        me_response = self.client.get(
+            reverse("users:me"), HTTP_AUTHORIZATION=f"Bearer {self.access_token}"
+        )
+        self.assertEqual(me_response.status_code, status.HTTP_200_OK)
+
+    def test_can_log_in_with_new_password_afterwards(self):
+        self._auth_change(
+            {"current_password": "oldpassword123", "new_password": "brandnewpassword456"}
+        )
+
+        login_response = self.client.post(
+            reverse("users:login"),
+            {"email": "mahmudul@email.com", "password": "brandnewpassword456"},
+            format="json",
+        )
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+
+
+# ════════════════════════════════════════════════════════════════
+# Day 13 — Security hardening: rate-limiting sanity check
+# ════════════════════════════════════════════════════════════════
+class ThrottlingTests(APITestCase):
+    """
+    Every other test class in this file runs with throttling disabled
+    (see settings.py's own comment on THROTTLE_RATES under
+    `manage.py test`) — hundreds of legitimate, rapid test-only calls
+    from the same Django test-client "IP" would otherwise trip limits
+    meant for a real attacker, failing tests for a reason that has
+    nothing to do with what each one is actually checking.
+
+    This class opts back into real rates for just one test, using
+    unittest.mock.patch.object (see that test's own comment for why
+    @override_settings doesn't actually work for this), just to prove the wiring actually works end-to-end
+    (scope resolves, exception handler reshapes it, HTTP 429 comes
+    back) rather than only trusting that throttle_scope was spelled
+    correctly on the view.
+    """
+
+    @staticmethod
+    def _real_throttle_rates():
+        return {
+            "anon": "1000/hour",
+            "user": "1000/hour",
+            "login": "2/min",
+            "otp": "1000/hour",
+            "register": "1000/hour",
+            "password_reset": "1000/hour",
+        }
+
+    def test_login_is_rate_limited_after_the_configured_number_of_attempts(self):
+        from unittest.mock import patch
+
+        from rest_framework.throttling import SimpleRateThrottle
+
+        url = reverse("users:login")
+        payload = {"email": "nosuchuser@email.com", "password": "wrongpassword"}
+
+        # @override_settings(REST_FRAMEWORK=...) does NOT work here, and
+        # silently does nothing rather than erroring: SimpleRateThrottle.
+        # THROTTLE_RATES (what get_rate() actually reads) is a plain
+        # class attribute baked in from api_settings.DEFAULT_THROTTLE_RATES
+        # exactly once, the moment rest_framework.throttling is first
+        # imported — which for a real `manage.py test` run happens during
+        # test *discovery*, well before any individual test's
+        # override_settings block ever activates, and long after
+        # settings.py's own test-mode all-None THROTTLE_RATES was already
+        # baked in at Django startup. Patching the already-baked class
+        # attribute directly (not the Django *setting*) is what actually
+        # changes what get_rate() returns for the rest of this `with`
+        # block, restoring the original afterwards.
+        with patch.object(SimpleRateThrottle, "THROTTLE_RATES", self._real_throttle_rates()):
+            # Cache-backed throttle counters persist across requests
+            # within this block — the first 2 calls consume the "2/min"
+            # budget (each still reaches LoginView and returns its own
+            # normal 400 for bad credentials), the 3rd is throttled
+            # before the view ever runs.
+            first = self.client.post(url, payload, format="json")
+            second = self.client.post(url, payload, format="json")
+            third = self.client.post(url, payload, format="json")
+
+        self.assertEqual(first.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(third.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        # Reshaped by core.exceptions.custom_exception_handler into the
+        # same {"status": "error", "message": "..."} shape every other
+        # endpoint in this project already uses — see that module's
+        # own docstring for why DRF's raw {"detail": "..."} wouldn't
+        # match otherwise.
+        body = third.json()
+        self.assertEqual(body["status"], "error")
+        self.assertIn("throttled", body["message"].lower())

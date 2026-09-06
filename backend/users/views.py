@@ -1,4 +1,5 @@
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -9,6 +10,7 @@ from .models import OTP, User
 from .utils import send_otp_email, send_password_reset_email
 from .serializers import (
     AccountDeleteSerializer,
+    ChangePasswordSerializer,
     ForgotPasswordSerializer,
     LoginSerializer,
     RefreshSerializer,
@@ -20,16 +22,36 @@ from .serializers import (
 )
 
 
-# ── Dev 1, Day 2 ───────────────────────────────────────────────────
+# ── Day 1, Dev 1 ───────────────────────────────────────────────────
 class RegisterView(APIView):
     """
     POST /api/auth/register/
 
     Creates the account (unverified, inactive) and emails a 6-digit OTP.
     Verification + JWT issuance is Dev 2's VerifyOTPView below.
+
+    Security hardening (Day 13 audit):
+    - throttle_scope="register": previously unlimited — a bot could
+      script thousands of fake signups per minute, each one emailing
+      a real OTP out (mail-bombing an unrelated inbox if the attacker
+      controls the `email` field freely, which registration always
+      lets them).
+    - No longer lets a signup attempt double as an email-enumeration
+      oracle: registering with an email that already belongs to a
+      *verified* account used to return a distinguishable "Email
+      already exists" 400 (see the old RegisterSerializer.
+      validate_email) — now returns the exact same generic 201 success
+      a real new signup gets, without creating a second row or
+      emailing a real OTP to somebody else's inbox. Same
+      "don't confirm/deny an account exists" reasoning
+      ForgotPasswordView/ResendOTPView already apply to their own
+      endpoints (see ForgotPasswordSerializer's docstring) — this just
+      extends it to the one endpoint that hadn't gotten it yet.
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle, AnonRateThrottle, UserRateThrottle]
+    throttle_scope = "register"
 
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
@@ -40,12 +62,23 @@ class RegisterView(APIView):
                 errors=serializer.errors,
             )
 
+        email = serializer.validated_data["email"]
+        generic_message = "OTP sent to your email"
+
+        # See this view's own docstring above for why this deliberately
+        # returns the *same* success response instead of a distinguishable
+        # error — checked here (not in the serializer) for the same
+        # "existence checks belong in the view, not the serializer" split
+        # ForgotPasswordSerializer's own docstring documents.
+        if User.objects.filter(email__iexact=email, verified=True).exists():
+            return success_response(message=generic_message, status_code=201)
+
         user = serializer.save()
 
         otp = OTP.create_for_email(user.email, purpose=OTP.PURPOSE_SIGNUP)
         send_otp_email(user.email, otp.otp_code)
 
-        return success_response(message="OTP sent to your email", status_code=201)
+        return success_response(message=generic_message, status_code=201)
 
 
 # ── Dev 2, Day 2 ─────────────────────────────────────────────────────
@@ -57,9 +90,17 @@ class VerifyOTPView(APIView):
     - OTP Check করে, Expired কিনা দেখে
     - Valid হলে user.verified = True করে, JWT (access + refresh) Return করে
     - Invalid/Expired হলে 400 + error message Return করে
+
+    Security hardening (Day 13 audit): throttle_scope="otp" — a
+    6-digit code is only 1,000,000 possibilities; with no rate limit
+    at all, brute-forcing one within its 5-minute expiry window
+    (OTP_EXPIRY_MINUTES) was practical, not just theoretical. See
+    settings.py's own comment on THROTTLE_RATES for the exact numbers.
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle, AnonRateThrottle, UserRateThrottle]
+    throttle_scope = "otp"
 
     def post(self, request):
         serializer = VerifyOTPSerializer(data=request.data)
@@ -122,9 +163,16 @@ class ResendOTPView(APIView):
 
     OTP verify পেজের "Resend" বাটনের জন্য। নতুন 6-digit OTP জেনারেট করে
     email করে দেয়।
+
+    Security hardening (Day 13 audit): throttle_scope="otp" — without
+    this, "Resend" could be spammed to mail-bomb any inbox (the
+    generic-response branch below still runs the throttle check first,
+    since ScopedRateThrottle is IP-keyed, not existence-keyed).
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle, AnonRateThrottle, UserRateThrottle]
+    throttle_scope = "otp"
 
     def post(self, request):
         serializer = ResendOTPSerializer(data=request.data)
@@ -172,9 +220,17 @@ class ForgotPasswordView(APIView):
     letting this endpoint also work for it would let someone silently
     "verify" a signup-in-progress via the reset flow instead of OTP
     verify, bypassing RegisterView's intended path.
+
+    Security hardening (Day 13 audit): throttle_scope="password_reset"
+    — previously unlimited, so this doubled as a mail-bomb vector (an
+    attacker who doesn't even know if the address is registered could
+    still trigger unlimited emails to it) exactly like ResendOTPView's
+    own equivalent gap.
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle, AnonRateThrottle, UserRateThrottle]
+    throttle_scope = "password_reset"
 
     def post(self, request):
         serializer = ForgotPasswordSerializer(data=request.data)
@@ -216,9 +272,16 @@ class ResetPasswordView(APIView):
     their new password, same as any fresh credential change should
     require re-authenticating rather than trusting the just-used OTP
     as an implicit login.
+
+    Security hardening (Day 13 audit): throttle_scope="otp" — same
+    6-digit-guessable-code reasoning VerifyOTPView's own docstring
+    explains, just for the password-reset OTP instead of the
+    signup-verify one.
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle, AnonRateThrottle, UserRateThrottle]
+    throttle_scope = "otp"
 
     def post(self, request):
         serializer = ResetPasswordSerializer(data=request.data)
@@ -283,9 +346,19 @@ class AccountDeleteView(APIView):
     resolve the token's user id and rejects any further request with
     that access token anyway — the same natural consequence deleting a
     user always has here, not something this view needs to special-case.
+
+    Security hardening (Day 13 audit): throttle_scope="password_reset"
+    — this endpoint is already IsAuthenticated (so DEFAULT_THROTTLE_
+    RATES['user'] alone covers casual abuse), but the tighter scoped
+    rate additionally guards the password-guessing angle specifically:
+    a stolen/leaked access token holder could otherwise brute-force the
+    real password with as many attempts as the generous default 'user'
+    rate allows before giving up and just calling it "confirmed".
     """
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle, AnonRateThrottle, UserRateThrottle]
+    throttle_scope = "password_reset"
 
     def delete(self, request):
         serializer = AccountDeleteSerializer(data=request.data)
@@ -302,6 +375,76 @@ class AccountDeleteView(APIView):
         return success_response(message="Account deleted")
 
 
+# ── Day 12 ───────────────────────────────────────────────────────────
+class ChangePasswordView(APIView):
+    """
+    POST /api/auth/change-password/
+    Body: {"current_password": "...", "new_password": "..."}
+
+    Not in the API Contract PDF — new feature. Auth required. This is
+    the "I know my password and just want to update it" counterpart to
+    Forgot/Reset Password's "I don't know my password anymore" flow —
+    the two intentionally don't share a serializer/view despite both
+    ending in user.set_password(), because they authenticate the
+    request completely differently: this one via an already-valid JWT
+    plus the current password, Forgot/Reset Password via a one-time
+    emailed OTP instead. Two different starting situations (signed in
+    vs. locked out) need two different proofs of identity.
+
+    Requires the current password as re-confirmation, same
+    "prove you're really you" reasoning AccountDeleteSerializer already
+    documents — a JWT alone (stolen/leaked token, shared/forgotten-open
+    session) shouldn't be enough to change the one credential that
+    would lock the real account owner out. Also rejects submitting the
+    same password as both current and new — not a security issue by
+    itself, but silently doing nothing while returning "success" would
+    be misleading, so this is caught explicitly with its own message.
+
+    Deliberately does NOT log the user out / rotate or blacklist their
+    existing JWTs afterwards (no token_blacklist app installed — see
+    RefreshTokenView's docstring for the same project-wide limitation).
+    The current access token keeps working until it naturally expires
+    (30 minutes — see settings.py ACCESS_TOKEN_LIFETIME), same as
+    ResetPasswordView leaves any tokens issued before a reset alone —
+    changing your password while signed in shouldn't sign you out of
+    your own current session.
+
+    Security hardening (Day 13 audit): throttle_scope="password_reset"
+    — same current-password-brute-force reasoning AccountDeleteView's
+    own docstring just explained for its own password re-confirmation.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle, AnonRateThrottle, UserRateThrottle]
+    throttle_scope = "password_reset"
+
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response(
+                first_error_message(serializer.errors),
+                status_code=400,
+                errors=serializer.errors,
+            )
+
+        current_password = serializer.validated_data["current_password"]
+        new_password = serializer.validated_data["new_password"]
+
+        if not request.user.check_password(current_password):
+            return error_response("Current password is incorrect", status_code=400)
+
+        if current_password == new_password:
+            return error_response(
+                "New password must be different from your current password",
+                status_code=400,
+            )
+
+        request.user.set_password(new_password)
+        request.user.save(update_fields=["password"])
+
+        return success_response(message="Password changed successfully")
+
+
 # ── Dev 1, Day 3 ───────────────────────────────────────────────────
 class LoginView(APIView):
     """
@@ -315,9 +458,17 @@ class LoginView(APIView):
       কোনটা ভুল সেটা আলাদা করে বলা হয় না, security best practice)
     - Account থাকলেও এখনো OTP verify না হলে 403 + specific message,
       যাতে ব্যবহারকারী বুঝতে পারে কী করতে হবে
+
+    Security hardening (Day 13 audit): throttle_scope="login" —
+    previously unlimited, meaning a script could try passwords against
+    a known email as fast as the network allowed. 10/min is generous
+    enough for a real person mistyping their password a few times, far
+    too slow to make guessing a real password practical.
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle, AnonRateThrottle, UserRateThrottle]
+    throttle_scope = "login"
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)

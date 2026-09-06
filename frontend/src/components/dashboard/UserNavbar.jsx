@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils'
 const NAV_LINKS = [
   { label: 'Dashboard', to: '/dashboard' },
   { label: 'Messages', to: '/chats', showUnreadBadge: true },
+  { label: 'Bookings', to: '/bookings' },
   { label: 'Account', to: '/account' },
 ]
 
@@ -116,6 +117,11 @@ function UserMenu({ onNavigate }) {
  * page a customer happens to be on, not only once they've already
  * opened Chats — added after testing surfaced that an unread reply
  * was otherwise invisible outside the Chats page itself.
+ *
+ * "Bookings" — Day 11 addition, linking to the new MyBookingsPage
+ * (route /bookings). No unread-style badge the way Messages has one:
+ * a booking's status changing isn't a per-item "new" signal the way
+ * an unread chat message is, so nothing here polls for it.
  */
 function UserNavbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)

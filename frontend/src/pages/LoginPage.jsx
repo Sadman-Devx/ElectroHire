@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import { AuthLayout } from '@/components/AuthLayout'
 import { FormField } from '@/components/FormField'
@@ -14,7 +14,16 @@ const INITIAL_VALUES = { email: '', password: '' }
 
 function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { login } = useAuth()
+
+  // Day 11: ResetPasswordPage sends visitors here on a successful
+  // reset with `state: { notice }` (see its own doc comment for why
+  // it can't just log them in directly). Read once on mount rather
+  // than re-read on every render so the banner doesn't reappear if
+  // the person navigates away and back via browser history with the
+  // same location.state still attached.
+  const [notice] = useState(location.state?.notice || null)
 
   const [values, setValues] = useState(INITIAL_VALUES)
   const [touched, setTouched] = useState({})
@@ -84,6 +93,12 @@ function LoginPage() {
       }
     >
       <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
+        {notice ? (
+          <div className="rounded-[var(--radius-input)] bg-[var(--color-secondary-tint)] px-3.5 py-2.5 text-sm font-medium text-[var(--color-secondary)]">
+            {notice}
+          </div>
+        ) : null}
+
         <FormField id="email" label="Email address" error={shouldShow('email') ? errors.email : null}>
           <Input
             id="email"
@@ -111,6 +126,14 @@ function LoginPage() {
             onChange={(e) => updateField('password', e.target.value)}
             onBlur={() => markTouched('password')}
           />
+          <div className="mt-1.5 text-right">
+            <Link
+              to="/forgot-password"
+              className="text-xs font-medium text-[var(--color-secondary)] hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </div>
         </FormField>
 
         {submitError ? (

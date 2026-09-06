@@ -85,4 +85,133 @@ export async function getMyProfile() {
   }
 }
 
-export default { register, login, verifyOtp, resendOtp, getMyProfile }
+/**
+ * POST /api/auth/forgot-password/ — no auth required.
+ * Body: {"email": "..."}
+ *
+ * Not in the API Contract PDF — backs the Forgot Password page.
+ * Backend (users/views.py ForgotPasswordView) always returns the same
+ * generic success message whether or not the account exists (or is
+ * verified) — same "don't confirm/deny an email is registered"
+ * reasoning ResendOTPView already uses — so this never throws for a
+ * "no such account" case, only for a malformed request or a genuine
+ * network/server failure.
+ *
+ * Response: { status: "success", message: "If an account exists for
+ *   this email, a password reset code has been sent" }
+ *
+ *   const { message } = await forgotPassword({ email })
+ */
+export async function forgotPassword({ email }) {
+  try {
+    const { data } = await apiClient.post('/auth/forgot-password/', { email })
+    return data
+  } catch (error) {
+    throw toServiceError(error)
+  }
+}
+
+/**
+ * POST /api/auth/reset-password/ — no auth required.
+ * Body: {"email": "...", "otp": "123456", "new_password": "..."}
+ *
+ * Not in the API Contract PDF — backs the Reset Password page.
+ * Backend (users/views.py ResetPasswordView) deliberately does NOT
+ * log the user in afterwards (no access/refresh token in the
+ * response) — the frontend sends them to /login with their new
+ * password instead of trusting the just-used OTP as an implicit
+ * login, so this resolves with just the confirmation message.
+ *
+ * Response: { status: "success", message: "Password has been reset. Please log in." }
+ *
+ *   const { message } = await resetPassword({ email, otp, newPassword })
+ */
+export async function resetPassword({ email, otp, newPassword }) {
+  try {
+    const { data } = await apiClient.post('/auth/reset-password/', {
+      email,
+      otp,
+      new_password: newPassword,
+    })
+    return data
+  } catch (error) {
+    throw toServiceError(error)
+  }
+}
+
+/**
+ * DELETE /api/auth/account/ — Auth required.
+ * Body: {"password": "..."}
+ *
+ * Not in the API Contract PDF — backs the Account Page's "Delete
+ * account" danger-zone action. Backend (users/views.py
+ * AccountDeleteView) always deletes the *caller's own* account (no id
+ * parameter) and requires the current password as re-confirmation —
+ * a stolen/leaked access token alone isn't enough to permanently
+ * delete an account.
+ *
+ * On success the caller's row (and, per CASCADE, their provider
+ * profile/contacts/messages/ratings/reports/bookings) is gone —
+ * apiClient's own JWT is now worthless (SimpleJWT can't resolve the
+ * deleted user id), so the caller must also clear the local session
+ * afterwards (see useDeleteAccount, which calls AuthContext's
+ * logout() immediately after this resolves).
+ *
+ * Response: { status: "success", message: "Account deleted" }
+ *
+ *   const { message } = await deleteAccount({ password })
+ */
+export async function deleteAccount({ password }) {
+  try {
+    const { data } = await apiClient.delete('/auth/account/', { data: { password } })
+    return data
+  } catch (error) {
+    throw toServiceError(error)
+  }
+}
+
+/**
+ * POST /api/auth/change-password/ — Auth required.
+ * Body: {"current_password": "...", "new_password": "..."}
+ *
+ * Not in the API Contract PDF — backs the Account Page's "Change
+ * Password" action. Backend (users/views.py ChangePasswordView) is
+ * the "I know my password and just want to update it" counterpart to
+ * forgotPassword/resetPassword above (which exist precisely for when
+ * the caller *doesn't* know their password) — requires the current
+ * password as re-confirmation, same as deleteAccount does for its own
+ * destructive action.
+ *
+ * Does NOT clear the local session or log the caller out — the
+ * backend deliberately leaves the current access/refresh token pair
+ * working (see ChangePasswordView's own docstring), so unlike
+ * deleteAccount there is nothing for a caller of this function to
+ * clean up in tokenStorage.js afterwards.
+ *
+ * Response: { status: "success", message: "Password changed successfully" }
+ *
+ *   const { message } = await changePassword({ currentPassword, newPassword })
+ */
+export async function changePassword({ currentPassword, newPassword }) {
+  try {
+    const { data } = await apiClient.post('/auth/change-password/', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    })
+    return data
+  } catch (error) {
+    throw toServiceError(error)
+  }
+}
+
+export default {
+  register,
+  login,
+  verifyOtp,
+  resendOtp,
+  getMyProfile,
+  forgotPassword,
+  resetPassword,
+  deleteAccount,
+  changePassword,
+}

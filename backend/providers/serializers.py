@@ -6,6 +6,15 @@ from categories.models import Category
 
 from .models import Provider, ProviderCategory
 
+# Security hardening (Day 13 audit): DRF's ImageField already uses
+# Pillow to confirm an uploaded file's *content* really is a decodable
+# image (rejecting a renamed .php/.exe, for instance) — but neither
+# Django nor DRF caps how *large* that image is allowed to be. Without
+# this, a single "valid" 500MB image would still sail through,
+# filling up disk (MEDIA_ROOT) or spiking memory during Pillow's own
+# decode step. 5MB comfortably fits any real profile photo.
+MAX_PHOTO_SIZE_BYTES = 5 * 1024 * 1024
+
 
 class ProviderProfileSetupSerializer(serializers.Serializer):
     """
@@ -37,6 +46,13 @@ class ProviderProfileSetupSerializer(serializers.Serializer):
         missing = [cid for cid in value if cid not in existing_ids]
         if missing:
             raise serializers.ValidationError(f"Invalid category id(s): {missing}")
+        return value
+
+    def validate_photo(self, value):
+        if value and value.size > MAX_PHOTO_SIZE_BYTES:
+            raise serializers.ValidationError(
+                f"Photo must be {MAX_PHOTO_SIZE_BYTES // (1024 * 1024)}MB or smaller."
+            )
         return value
 
     def save(self, **kwargs):

@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.test import APITestCase
@@ -10,6 +11,28 @@ from ratings.models import Rating
 from .models import Provider, ProviderCategory
 
 User = get_user_model()
+
+
+def _oversized_png(size_bytes=6 * 1024 * 1024):
+    """
+    A genuinely valid (Pillow-decodable), genuinely large PNG — not
+    padded-with-junk-bytes, since Pillow's own ImageField validation
+    might tolerate or choke on trailing garbage after a real image
+    stream depending on version; a solid-color image saved with
+    compress_level=0 (no PNG compression) reliably produces a large
+    file from real, valid image data instead.
+    """
+    from io import BytesIO
+
+    from PIL import Image
+
+    # 1500x1500 RGB, uncompressed ≈ 6.75MB — comfortably over the 5MB
+    # cap (MAX_PHOTO_SIZE_BYTES in serializers.py) regardless of the
+    # `size_bytes` parameter, which only documents the intent.
+    image = Image.new("RGB", (1500, 1500), color=(255, 0, 0))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG", compress_level=0)
+    return SimpleUploadedFile("photo.png", buffer.getvalue(), content_type="image/png")
 
 
 class ProviderProfileSetupTests(APITestCase):
@@ -36,6 +59,34 @@ class ProviderProfileSetupTests(APITestCase):
         self.client.credentials()  # drop the Authorization header
         response = self.client.post(self.url, {"area": "Dhanmondi"})
         self.assertEqual(response.status_code, 401)
+
+    # Security hardening (Day 13 audit): a "user"-role account used to
+    # be able to POST here directly and become a provider anyway,
+    # bypassing the signup form's role selector entirely (see this
+    # view's own docstring).
+    def test_user_role_account_gets_403_not_a_provider_row(self):
+        regular_user = User.objects.create_user(
+            email="mahmudul@example.com",
+            password="strongpass123",
+            name="Mahmudul Hasan",
+            phone="01812345678",
+            role=User.ROLE_USER,
+            verified=True,
+            is_active=True,
+        )
+        access_token = RefreshToken.for_user(regular_user).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
+
+        payload = {
+            "categories": [self.electrician.id],
+            "area": "Dhanmondi",
+            "experience": 2,
+        }
+        response = self.client.post(self.url, payload)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["status"], "error")
+        self.assertFalse(Provider.objects.filter(user=regular_user).exists())
 
     def test_creates_provider_with_pending_status(self):
         payload = {
@@ -87,6 +138,24 @@ class ProviderProfileSetupTests(APITestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data["status"], "error")
+
+    # Security hardening (Day 13 audit): neither Django nor DRF caps
+    # upload size by default (see MAX_PHOTO_SIZE_BYTES in serializers.py
+    # for the full reasoning) — without this, a single "valid" 500MB
+    # image would previously have sailed straight through.
+    def test_oversized_photo_rejected(self):
+        payload = {
+            "categories": [self.electrician.id],
+            "area": "Dhanmondi",
+            "experience": 2,
+            "photo": _oversized_png(),
+        }
+        response = self.client.post(self.url, payload, format="multipart")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["status"], "error")
+        self.assertIn("5MB", response.data["message"])
+        self.assertFalse(Provider.objects.filter(user=self.user).exists())
 
     def test_missing_required_field_rejected(self):
         response = self.client.post(

@@ -4,6 +4,8 @@ import { ProtectedRoute } from '@/components/ProtectedRoute'
 import HomePage from '@/pages/HomePage'
 import SignupPage from '@/pages/SignupPage'
 import LoginPage from '@/pages/LoginPage'
+import ForgotPasswordPage from '@/pages/ForgotPasswordPage'
+import ResetPasswordPage from '@/pages/ResetPasswordPage'
 import VerifyOtpPage from '@/pages/VerifyOtpPage'
 import ProvidersPage from '@/pages/ProvidersPage'
 import ProviderDetailPage from '@/pages/ProviderDetailPage'
@@ -16,6 +18,9 @@ import UserDashboardPage from '@/pages/UserDashboardPage'
 import ChatsPage from '@/pages/ChatsPage'
 import RateProviderPage from '@/pages/RateProviderPage'
 import ReportProviderPage from '@/pages/ReportProviderPage'
+import BookProviderPage from '@/pages/BookProviderPage'
+import MyBookingsPage from '@/pages/MyBookingsPage'
+import ProviderBookingsPage from '@/pages/ProviderBookingsPage'
 import TermsPage from '@/pages/TermsPage'
 import NotFoundPage from '@/pages/NotFoundPage'
 
@@ -25,6 +30,9 @@ function App() {
       <Route path="/" element={<HomePage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/login" element={<LoginPage />} />
+      {/* Day 11, Dev 2/1: Forgot/Reset Password — public, pre-login flow */}
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/verify-otp" element={<VerifyOtpPage />} />
       <Route path="/providers" element={<ProvidersPage />} />
       <Route path="/providers/:id" element={<ProviderDetailPage />} />
@@ -43,6 +51,32 @@ function App() {
         element={
           <ProtectedRoute>
             <ReportProviderPage />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Day 11, Dev 1/3: Provider Booking System */}
+      <Route
+        path="/providers/:id/book"
+        element={
+          <ProtectedRoute>
+            <BookProviderPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/bookings"
+        element={
+          <ProtectedRoute>
+            <MyBookingsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/provider/bookings"
+        element={
+          <ProtectedRoute>
+            <ProviderBookingsPage />
           </ProtectedRoute>
         }
       />

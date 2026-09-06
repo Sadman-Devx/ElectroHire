@@ -1,9 +1,11 @@
 import { Link } from 'react-router-dom'
-import { ChevronRight, LogOut, ScrollText } from 'lucide-react'
+import { CalendarClock, ChevronRight, LogOut, ScrollText } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { ChangePasswordSection } from '@/components/account/ChangePasswordSection'
 import { ContactHistorySection } from '@/components/account/ContactHistorySection'
+import { DeleteAccountSection } from '@/components/account/DeleteAccountSection'
 import { MyRatingsSection } from '@/components/account/MyRatingsSection'
 import { ProfileInfoCard } from '@/components/account/ProfileInfoCard'
 import { DashboardNavbar } from '@/components/dashboard/DashboardNavbar'
@@ -42,6 +44,12 @@ import { useMyRatings } from '@/hooks/useMyRatings'
  * from having also contacted/rated another provider, so it stays open
  * to both roles rather than gating one out with a
  * ProviderOnlyNotice-style block.
+ *
+ * "My Bookings" link + Delete account danger zone — Day 11 additions.
+ * "Change Password" — Day 12 addition. Both DeleteAccountSection and
+ * ChangePasswordSection own their entire confirm-dialog/submit state
+ * themselves (see each component's own doc comment for why neither is
+ * inlined here) — this page only renders them.
  */
 function AccountPage() {
   const { user, logout } = useAuth()
@@ -78,6 +86,19 @@ function AccountPage() {
 
             <Card className="divide-y divide-[var(--color-border)] p-0">
               <Link
+                to="/bookings"
+                className="flex items-center justify-between px-5 py-4 text-sm font-medium text-[var(--color-text)] transition-colors hover:bg-[var(--color-bg)] sm:px-6"
+              >
+                <span className="flex items-center gap-2.5">
+                  <CalendarClock className="h-4 w-4 text-[var(--color-text-muted)]" aria-hidden="true" />
+                  My Bookings
+                </span>
+                <ChevronRight className="h-4 w-4 text-[var(--color-text-subtle)]" aria-hidden="true" />
+              </Link>
+
+              <ChangePasswordSection />
+
+              <Link
                 to="/terms"
                 className="flex items-center justify-between px-5 py-4 text-sm font-medium text-[var(--color-text)] transition-colors hover:bg-[var(--color-bg)] sm:px-6"
               >
@@ -100,6 +121,8 @@ function AccountPage() {
                 </Button>
               </div>
             </Card>
+
+            <DeleteAccountSection />
           </div>
         </div>
       </main>
