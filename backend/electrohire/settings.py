@@ -107,6 +107,7 @@ INSTALLED_APPS = [
     'ratings',
     'reports',
     'bookings',  # Day 11, Dev 2 — Provider Booking System
+    'assistant',  # Hackathon Phase 1 — AI problem-analysis assistant
     'core',
 ]
 
@@ -311,6 +312,7 @@ if 'test' in sys.argv:
         'otp': None,
         'register': None,
         'password_reset': None,
+        'assistant': None,
     }
 else:
     THROTTLE_RATES = {
@@ -320,6 +322,9 @@ else:
         'otp': '5/min',
         'register': '10/hour',
         'password_reset': '5/min',
+        # Every AI call costs real money and is an abuse target, so
+        # this is deliberately tight (per authenticated user).
+        'assistant': '30/hour',
     }
 
 REST_FRAMEWORK = {
@@ -378,3 +383,26 @@ if not DEBUG:
     # SecurityMiddleware (already in MIDDLEWARE) sends
     # X-Content-Type-Options: nosniff by default regardless of DEBUG —
     # nothing to add for that one specifically.
+
+
+# ── AI Assistant (Hackathon Phase 1) ────────────────────────────────
+# Everything vendor-specific lives in .env, never in code. Any
+# OpenAI-compatible endpoint works:
+#   * Nebius Token Factory + an NVIDIA Nemotron model (hackathon target)
+#   * any temporary dev provider (OpenRouter, Groq, Ollama, ...)
+# Switching providers = editing these variables, nothing else.
+AI_BASE_URL = os.environ.get("AI_BASE_URL", "").strip()
+AI_API_KEY = os.environ.get("AI_API_KEY", "").strip()
+AI_MODEL = os.environ.get("AI_MODEL", "").strip()
+AI_TIMEOUT_SECONDS = float(os.environ.get("AI_TIMEOUT_SECONDS", "30"))
+# Low temperature = consistent, structured output.
+AI_TEMPERATURE = float(os.environ.get("AI_TEMPERATURE", "0.2"))
+AI_MAX_TOKENS = int(os.environ.get("AI_MAX_TOKENS", "800"))
+# Ask the provider for strict JSON output. Set False if a provider
+# rejects response_format (the reply is still parsed + validated).
+AI_JSON_MODE = _env_bool("AI_JSON_MODE", default=True)
+# Extra attempts when the model's reply is malformed (not for
+# network/timeout errors -- those fail fast).
+AI_MALFORMED_RETRIES = int(os.environ.get("AI_MALFORMED_RETRIES", "1"))
+# Category used when the model names one that is not in the DB.
+AI_FALLBACK_CATEGORY = os.environ.get("AI_FALLBACK_CATEGORY", "Electrician").strip()
