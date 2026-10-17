@@ -28,3 +28,7 @@ python-dotenv==1.2.3
 # CHANNEL_LAYERS/CACHES for what this backs.
 channels-redis==4.3.0
 redis==6.4.0
+
+# AI Assistant (hackathon Phase 1): OpenAI-compatible client, used
+# for Nebius Token Factory / any OpenAI-compatible provider.
+openai==3.31.0
