@@ -1,4 +1,4 @@
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ContactHistorySection } from '@/components/account/ContactHistorySection'
@@ -87,6 +87,26 @@ function UserDashboardPage() {
               Find a service provider today
             </p>
           </div>
+
+          {/* Hackathon Phase 3: entry point to the AI Assistant. */}
+          <Link
+            to="/assistant"
+            className="mb-6 flex items-center gap-4 rounded-[var(--radius-card)] border border-[var(--color-primary)]/40 bg-[var(--color-primary-tint)] p-4 transition-colors hover:border-[var(--color-primary)]"
+          >
+            <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-white">
+              <Sparkles className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-bold text-[var(--color-text)]">
+                Not sure what&apos;s wrong? Ask the AI Assistant
+              </span>
+              <span className="block text-xs text-[var(--color-text-muted)]">
+                Describe the problem in Bangla or English and get safety tips, a cost estimate and
+                the right provider.
+              </span>
+            </span>
+            <ChevronRight className="h-5 w-5 flex-shrink-0 text-[var(--color-text-subtle)]" aria-hidden="true" />
+          </Link>
 
           <div className="mb-6">
             <SearchBox categories={categories} isLoading={isLoadingCategories} error={categoriesError} />

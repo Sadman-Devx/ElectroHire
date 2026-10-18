@@ -28,6 +28,9 @@ def _build_client():
     # Config is checked FIRST so a missing key/URL/model always gives
     # the clear "not configured" error, even before openai is imported.
     if not settings.AI_API_KEY or not settings.AI_BASE_URL or not settings.AI_MODEL:
+        logger.error(
+            "AI is not configured: set AI_BASE_URL, AI_API_KEY and AI_MODEL in backend/.env"
+        )
         raise AIServiceError(
             "AI is not configured: set AI_BASE_URL, AI_API_KEY and AI_MODEL in .env"
         )

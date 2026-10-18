@@ -20,8 +20,11 @@ import { Card } from '@/components/ui/card'
  * until the Rating model lands (Day 7, Dev 2) — shown as "New"
  * instead of "0.0 (0)" so a freshly-approved provider doesn't read as
  * having a bad rating.
+ *
+ * Phase 3 (AI Assistant): optional `actions` prop replaces the default
+ * button area; omitted everywhere else, so existing callers are unchanged.
  */
-function ProviderCard({ provider }) {
+function ProviderCard({ provider, actions }) {
   const {
     id,
     name,
@@ -94,9 +97,14 @@ function ProviderCard({ provider }) {
         </div>
       </div>
 
-      <Button asChild size="sm" className="w-full flex-shrink-0 sm:w-auto">
-        <Link to={`/providers/${id}`}>View Profile</Link>
-      </Button>
+      {/* `actions` lets a caller swap the default "View Profile" button for
+          its own (the AI Assistant shows Contact + Book instead) without
+          duplicating this card's layout. */}
+      {actions ?? (
+        <Button asChild size="sm" className="w-full flex-shrink-0 sm:w-auto">
+          <Link to={`/providers/${id}`}>View Profile</Link>
+        </Button>
+      )}
     </Card>
   )
 }

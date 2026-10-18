@@ -9,6 +9,7 @@ from core.response import error_response, first_error_message, success_response
 
 from .analysis import analyze_problem
 from .llm_client import AIServiceError
+from .matching import match_providers, unavailable_result
 from .serializers import AnalyzeRequestSerializer
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,8 @@ class AnalyzeProblemView(APIView):
     """
     POST /api/assistant/analyze/
 
-    Auth required. Body: {"problem": "Ceiling fan ghure na"}
+    Auth required. Body: {"problem": "Ceiling fan ghure na",
+                          "area": "Gulshan"}   (area is optional)
 
     Success (200):
         {
@@ -36,7 +38,15 @@ class AnalyzeProblemView(APIView):
             "safety_tips": ["...", "..."],
             "cost_estimate": {"min": 300, "max": 800, "currency": "BDT",
                               "disclaimer": "..."} | null,
-            "language": "bn|en"
+            "language": "bn|en",
+            "providers": {                      # Phase 2
+              "area": "Gulshan" | null,
+              "area_matched": true | false | null,
+              "matches": [ <same shape as GET /api/providers/> ],
+              "message": "...",
+              "alternatives": {"other_areas": [...providers...],
+                               "other_categories": [{"id","name","provider_count"}]}
+            }
           }
         }
 
@@ -63,6 +73,7 @@ class AnalyzeProblemView(APIView):
             )
 
         problem = serializer.validated_data["problem"]
+        area = serializer.validated_data.get("area")
 
         try:
             result = analyze_problem(problem)
@@ -79,5 +90,19 @@ class AnalyzeProblemView(APIView):
                 AI_UNAVAILABLE_MESSAGE,
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
+
+        # Phase 2: attach real providers. The AI analysis already cost
+        # money, so a matching failure must never throw it away.
+        try:
+            result["providers"] = match_providers(
+                category=result["category"],
+                category_fallback=result["category_fallback"],
+                area=area,
+                language=result["language"],
+                request=request,
+            )
+        except Exception:
+            logger.exception("Provider matching failed")
+            result["providers"] = unavailable_result(result["language"])
 
         return success_response(message="Analysis complete", data=result)
