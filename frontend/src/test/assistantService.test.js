@@ -59,3 +59,51 @@ describe('analyzeProblem', () => {
     await expect(analyzeProblem({ problem: 'Ceiling fan ghure na' })).rejects.toThrow(/network error/i)
   })
 })
+
+describe('draftBooking', () => {
+  it('POSTs provider, message, summary and category to /assistant/booking-draft/', async () => {
+    apiClient.post.mockResolvedValue({ data: { data: { ready: true } } })
+    const { draftBooking } = await import('@/services/assistantService')
+
+    const result = await draftBooking({
+      providerId: 7,
+      message: 'kal shokal 10 tar',
+      problemSummary: 'Fan not spinning.',
+      categoryId: 1,
+    })
+
+    expect(result).toEqual({ ready: true })
+    const [url, body, config] = apiClient.post.mock.calls[0]
+    expect(url).toBe('/assistant/booking-draft/')
+    expect(body).toEqual({
+      provider_id: 7,
+      message: 'kal shokal 10 tar',
+      problem_summary: 'Fan not spinning.',
+      category_id: 1,
+    })
+    expect(config.timeout).toBeGreaterThan(0)
+  })
+
+  it('omits the optional fields when they are empty', async () => {
+    apiClient.post.mockResolvedValue({ data: { data: {} } })
+    const { draftBooking } = await import('@/services/assistantService')
+
+    await draftBooking({ providerId: 7, message: 'kal 10 tar', problemSummary: '', categoryId: null })
+
+    expect(apiClient.post.mock.calls[0][1]).toEqual({ provider_id: 7, message: 'kal 10 tar' })
+  })
+
+  it('surfaces the backend message (e.g. provider not bookable) and a friendly timeout', async () => {
+    const { draftBooking } = await import('@/services/assistantService')
+    apiClient.post.mockRejectedValueOnce({
+      response: { status: 400, data: { status: 'error', message: 'This provider is not currently accepting bookings.' } },
+    })
+    await expect(draftBooking({ providerId: 7, message: 'kal 10 tar' })).rejects.toMatchObject({
+      message: 'This provider is not currently accepting bookings.',
+      status: 400,
+    })
+
+    apiClient.post.mockRejectedValueOnce({ code: 'ECONNABORTED' })
+    await expect(draftBooking({ providerId: 7, message: 'kal 10 tar' })).rejects.toThrow(/taking too long/i)
+  })
+})

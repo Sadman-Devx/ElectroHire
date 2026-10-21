@@ -46,4 +46,42 @@ export async function analyzeProblem({ problem, area } = {}) {
   }
 }
 
-export default { analyzeProblem }
+/**
+ * POST /api/assistant/booking-draft/ — Auth required. Phase 4A backend:
+ * assistant/views.py BookingDraftView.
+ *
+ * Body: { provider_id, message, problem_summary?, category_id? }
+ *   message: the customer's own words, e.g. "kal shokal 10 tar, House 12 Road 5"
+ *
+ * Response `data`: { provider: {id, name, area}, draft: { provider_id,
+ *   category_id, scheduled_date, scheduled_time, address, description },
+ *   missing_fields, problems, ready, today, language }
+ *
+ * This only ever returns a DRAFT — it never creates a booking. A booking
+ * is created solely by bookingService.createBooking(), which the UI
+ * calls only when the customer presses Confirm.
+ *
+ *   const draft = await draftBooking({ providerId: 7, message: 'kal shokal 10 tar, House 12' })
+ */
+export async function draftBooking({ providerId, message, problemSummary, categoryId } = {}) {
+  const body = { provider_id: providerId, message }
+  if (problemSummary) body.problem_summary = problemSummary
+  if (categoryId) body.category_id = categoryId
+
+  try {
+    const response = await apiClient.post('/assistant/booking-draft/', body, {
+      timeout: AI_TIMEOUT_MS,
+    })
+    return response.data?.data ?? null
+  } catch (error) {
+    if (error?.code === 'ECONNABORTED') {
+      const timeoutError = new Error(TIMEOUT_MESSAGE)
+      timeoutError.status = null
+      timeoutError.cause = error
+      throw timeoutError
+    }
+    throw toServiceError(error)
+  }
+}
+
+export default { analyzeProblem, draftBooking }

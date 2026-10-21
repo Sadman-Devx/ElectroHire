@@ -47,3 +47,47 @@ class AnalyzeRequestSerializer(serializers.Serializer):
                 f"Please describe your problem in at least {MIN_PROBLEM_LENGTH} characters."
             )
         return cleaned
+
+
+class BookingDraftRequestSerializer(serializers.Serializer):
+    """
+    Body for POST /api/assistant/booking-draft/. The provider is chosen
+    by the customer in the UI (a provider card) and sent as provider_id;
+    the AI never decides who is booked.
+    """
+
+    provider_id = serializers.IntegerField(
+        min_value=1,
+        error_messages={
+            "required": "Please choose a provider.",
+            "invalid": "Provider id must be a number.",
+            "min_value": "Please choose a provider.",
+        },
+    )
+    message = serializers.CharField(
+        trim_whitespace=True,
+        allow_blank=False,
+        min_length=3,
+        max_length=500,
+        error_messages={
+            "required": "Please tell me when and where you want the booking.",
+            "blank": "Please tell me when and where you want the booking.",
+            "null": "Please tell me when and where you want the booking.",
+            "invalid": "Message must be text.",
+            "min_length": "Please tell me when and where you want the booking.",
+            "max_length": "Message is too long (max 500 characters).",
+        },
+    )
+    # From the Phase 1 analysis (optional): becomes the booking's notes.
+    problem_summary = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, max_length=400
+    )
+    category_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+
+    def validate_message(self, value):
+        cleaned = sanitize_user_text(value)
+        if len(cleaned) < 3:
+            raise serializers.ValidationError(
+                "Please tell me when and where you want the booking."
+            )
+        return cleaned

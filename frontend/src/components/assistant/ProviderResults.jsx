@@ -1,15 +1,18 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { SearchX } from 'lucide-react'
+import { SearchX, Sparkles } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { ProviderCard } from '@/components/providers/ProviderCard'
 import { textFor } from '@/lib/assistantText'
 
-function ProviderActions({ provider, language }) {
+import { BookingDraftPanel } from './BookingDraftPanel'
+
+function ProviderActions({ provider, language, isDraftOpen, onToggleDraft }) {
   const t = textFor(language)
 
   return (
-    <div className="flex w-full flex-shrink-0 gap-2 sm:w-auto">
+    <div className="flex w-full flex-shrink-0 flex-wrap gap-2 sm:w-auto sm:justify-end">
       <Button asChild size="sm" variant="secondary" className="flex-1 sm:flex-none">
         <Link to={`/providers/${provider.id}`} aria-label={`${t.contact} ${provider.name}`}>
           {t.contact}
@@ -20,6 +23,47 @@ function ProviderActions({ provider, language }) {
           {t.book}
         </Link>
       </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className="flex-1 sm:flex-none"
+        aria-expanded={isDraftOpen}
+        aria-label={`${t.draftWithAI} ${provider.name}`}
+        onClick={onToggleDraft}
+      >
+        <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+        {t.draftWithAI}
+      </Button>
+    </div>
+  )
+}
+
+/** One recommended provider: the card plus its optional AI booking-draft panel. */
+function MatchRow({ provider, language, context }) {
+  const [isDraftOpen, setIsDraftOpen] = useState(false)
+
+  return (
+    <div className="flex flex-col gap-3">
+      <ProviderCard
+        provider={provider}
+        actions={
+          <ProviderActions
+            provider={provider}
+            language={language}
+            isDraftOpen={isDraftOpen}
+            onToggleDraft={() => setIsDraftOpen((open) => !open)}
+          />
+        }
+      />
+      {isDraftOpen ? (
+        <BookingDraftPanel
+          provider={provider}
+          categoryId={context?.categoryId ?? null}
+          summary={context?.summary || ''}
+          onClose={() => setIsDraftOpen(false)}
+        />
+      ) : null}
     </div>
   )
 }
@@ -30,7 +74,7 @@ function ProviderActions({ provider, language }) {
  * categories). Provider objects are the same shape as
  * GET /api/providers/, so the existing ProviderCard is reused as-is.
  */
-function ProviderResults({ providers, language = 'en' }) {
+function ProviderResults({ providers, language = 'en', context }) {
   if (!providers) return null
 
   const t = textFor(language)
@@ -48,11 +92,7 @@ function ProviderResults({ providers, language = 'en' }) {
           ) : null}
         </div>
         {matches.map((provider) => (
-          <ProviderCard
-            key={provider.id}
-            provider={provider}
-            actions={<ProviderActions provider={provider} language={language} />}
-          />
+          <MatchRow key={provider.id} provider={provider} language={language} context={context} />
         ))}
       </section>
     )
