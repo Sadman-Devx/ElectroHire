@@ -10,6 +10,7 @@ import { analyzeProblem } from '@/services/assistantService'
 
 vi.mock('@/services/assistantService', () => ({
   analyzeProblem: vi.fn(),
+  draftBooking: vi.fn(),
 }))
 
 const PROVIDER = {

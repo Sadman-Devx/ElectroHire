@@ -68,7 +68,14 @@ function AssistantMessage({ turn, onRetry }) {
         {turn.status === 'done' && turn.result ? (
           <div className="flex flex-col gap-4">
             <AnalysisCard result={turn.result} />
-            <ProviderResults providers={turn.result.providers} language={language} />
+            <ProviderResults
+              providers={turn.result.providers}
+              language={language}
+              context={{
+                summary: turn.result.summary,
+                categoryId: turn.result.category_fallback ? null : turn.result.category?.id ?? null,
+              }}
+            />
           </div>
         ) : null}
       </div>
