@@ -25,7 +25,12 @@ class AnalyzeProblemView(APIView):
     POST /api/assistant/analyze/
 
     Auth required. Body: {"problem": "Ceiling fan ghure na",
-                          "area": "Gulshan"}   (area is optional)
+                          "area": "Gulshan",                        # optional
+                          "history": [{"problem": "...", "summary": "..."}]}  # optional (Phase 4C)
+
+    history = earlier turns of this chat so follow-ups like "can it be
+    cheaper?" are understood. Only the last 3 are used, trimmed. Held by
+    the client: the server stores no conversation.
 
     Success (200):
         {
@@ -40,6 +45,7 @@ class AnalyzeProblemView(APIView):
             "cost_estimate": {"min": 300, "max": 800, "currency": "BDT",
                               "disclaimer": "..."} | null,
             "language": "bn|en",
+            "sources": [{"title", "url", "domain"}],   # Phase 4B, [] if Tavily is off
             "providers": {                      # Phase 2
               "area": "Gulshan" | null,
               "area_matched": true | false | null,
@@ -75,9 +81,10 @@ class AnalyzeProblemView(APIView):
 
         problem = serializer.validated_data["problem"]
         area = serializer.validated_data.get("area")
+        history = serializer.validated_data.get("history") or []
 
         try:
-            result = analyze_problem(problem)
+            result = analyze_problem(problem, history=history)
         except AIServiceError:
             # Details were already logged where the failure happened;
             # the user only ever sees a polite, generic message.

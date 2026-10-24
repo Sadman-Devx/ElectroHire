@@ -107,3 +107,37 @@ describe('draftBooking', () => {
     await expect(draftBooking({ providerId: 7, message: 'kal 10 tar' })).rejects.toThrow(/taking too long/i)
   })
 })
+
+describe('analyzeProblem history (conversation memory)', () => {
+  it('sends earlier turns as { problem, summary } pairs', async () => {
+    apiClient.post.mockResolvedValue({ data: { data: {} } })
+
+    await analyzeProblem({
+      problem: 'ar kom khoroch e kora jay?',
+      history: [{ problem: 'Ceiling fan ghure na', summary: 'Capacitor issue.', extra: 'dropped' }],
+    })
+
+    expect(apiClient.post.mock.calls[0][1]).toEqual({
+      problem: 'ar kom khoroch e kora jay?',
+      history: [{ problem: 'Ceiling fan ghure na', summary: 'Capacitor issue.' }],
+    })
+  })
+
+  it('omits history when it is empty, missing or not a list', async () => {
+    apiClient.post.mockResolvedValue({ data: { data: {} } })
+
+    await analyzeProblem({ problem: 'Ceiling fan ghure na', history: [] })
+    await analyzeProblem({ problem: 'Ceiling fan ghure na' })
+    await analyzeProblem({ problem: 'Ceiling fan ghure na', history: 'nope' })
+
+    for (const call of apiClient.post.mock.calls) {
+      expect(call[1]).toEqual({ problem: 'Ceiling fan ghure na' })
+    }
+  })
+
+  it('fills in a blank summary', async () => {
+    apiClient.post.mockResolvedValue({ data: { data: {} } })
+    await analyzeProblem({ problem: 'again', history: [{ problem: 'Tap is leaking' }] })
+    expect(apiClient.post.mock.calls[0][1].history).toEqual([{ problem: 'Tap is leaking', summary: '' }])
+  })
+})

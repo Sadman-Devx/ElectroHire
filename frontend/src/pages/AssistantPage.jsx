@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
+import { RotateCcw } from 'lucide-react'
 
 import { AssistantEmptyState } from '@/components/assistant/AssistantEmptyState'
 import { AssistantMessage, UserBubble } from '@/components/assistant/ChatMessages'
 import { ChatComposer } from '@/components/assistant/ChatComposer'
+import { Button } from '@/components/ui/button'
 import { DashboardNavbar } from '@/components/dashboard/DashboardNavbar'
 import { UserNavbar } from '@/components/dashboard/UserNavbar'
 import { useAuth } from '@/context/useAuth'
@@ -24,7 +26,7 @@ import { useAssistantChat } from '@/hooks/useAssistantChat'
  */
 function AssistantPage() {
   const { user } = useAuth()
-  const { turns, isSending, send, retry } = useAssistantChat()
+  const { turns, isSending, send, retry, reset } = useAssistantChat()
   const [text, setText] = useState('')
   const [area, setArea] = useState('')
   const endRef = useRef(null)
@@ -48,12 +50,27 @@ function AssistantPage() {
 
       <main className="flex flex-1 flex-col">
         <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 pt-6 sm:px-6">
-          <div className="mb-4">
-            <h1 className="text-2xl font-bold text-[var(--color-text)]">AI Assistant</h1>
-            <p className="mt-1 text-sm text-[var(--color-text-muted)]">
-              Describe a problem at home and get safety tips, a cost estimate and the right
-              provider.
-            </p>
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-bold text-[var(--color-text)]">AI Assistant</h1>
+              <p className="mt-1 text-sm text-[var(--color-text-muted)]">
+                Describe a problem at home and get safety tips, a cost estimate and the right
+                provider. You can ask follow-up questions.
+              </p>
+            </div>
+            {turns.length > 0 ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="flex-shrink-0"
+                onClick={reset}
+                disabled={isSending}
+              >
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                New chat
+              </Button>
+            ) : null}
           </div>
 
           {turns.length === 0 ? (

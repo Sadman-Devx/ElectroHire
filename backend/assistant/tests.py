@@ -93,7 +93,7 @@ class AnalyzeSuccessTests(AssistantTestBase):
         self.assertEqual(
             set(data),
             {"category", "category_fallback", "urgency", "summary",
-             "safety_tips", "cost_estimate", "language", "providers"},
+             "safety_tips", "cost_estimate", "language", "providers", "sources"},
         )
         self.assertEqual(data["category"], {"id": self.electrician.id, "name": "Electrician"})
         self.assertFalse(data["category_fallback"])

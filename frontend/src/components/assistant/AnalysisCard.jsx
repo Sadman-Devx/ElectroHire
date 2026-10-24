@@ -1,7 +1,7 @@
-import { Banknote, ShieldCheck, Wrench } from 'lucide-react'
+import { Banknote, ExternalLink, ShieldCheck, Wrench } from 'lucide-react'
 
 import { Card } from '@/components/ui/card'
-import { formatCostRange, textFor } from '@/lib/assistantText'
+import { formatCostRange, safeSources, textFor } from '@/lib/assistantText'
 
 import { EmergencyBanner } from './EmergencyBanner'
 import { UrgencyBadge } from './UrgencyBadge'
@@ -18,6 +18,7 @@ function AnalysisCard({ result }) {
   const t = textFor(language)
   const tips = result.safety_tips || []
   const cost = result.cost_estimate
+  const sources = safeSources(result.sources)
   const isEmergency = urgency === 'emergency'
   const categoryKnown = category && !categoryFallback
 
@@ -65,6 +66,33 @@ function AnalysisCard({ result }) {
             {cost.disclaimer ? (
               <p className="mt-0.5 text-xs text-[var(--color-text-subtle)]">{cost.disclaimer}</p>
             ) : null}
+          </div>
+        ) : null}
+
+        {sources.length > 0 ? (
+          <div className="mt-4 border-t border-[var(--color-border)] pt-3">
+            <h3 className="text-sm font-bold text-[var(--color-text)]">{t.sources}</h3>
+            <p className="text-xs text-[var(--color-text-subtle)]">{t.sourcesNote}</p>
+            <ul className="mt-2 flex flex-col gap-1.5">
+              {sources.map((source) => (
+                <li key={source.url}>
+                  <a
+                    href={source.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex max-w-full items-start gap-1.5 text-sm text-[var(--color-secondary)] hover:underline"
+                  >
+                    <ExternalLink className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+                    <span className="min-w-0 break-words">
+                      {source.title}
+                      {source.domain ? (
+                        <span className="text-[var(--color-text-subtle)]"> · {source.domain}</span>
+                      ) : null}
+                    </span>
+                  </a>
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
       </Card>

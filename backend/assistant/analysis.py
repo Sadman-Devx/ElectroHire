@@ -13,6 +13,7 @@ deterministic backend rules:
                  always the fixed "switch off the main power" tip
   * cost      -> sane non-negative min<=max range, else omitted
   * disclaimer-> fixed backend text, never model-generated
+  * sources   -> only from our own Tavily results (Phase 4B), by number
 
 Public entry point: analyze_problem(problem_text).
 """
@@ -26,7 +27,8 @@ from django.conf import settings
 from categories.models import Category
 
 from .llm_client import AIServiceError, request_completion
-from .prompts import build_system_prompt, build_user_prompt
+from .prompts import build_system_prompt, build_user_prompt, trim_history
+from .web_search import find_references
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,8 @@ MIN_TIPS = 2
 MAX_TIP_LENGTH = 220
 MAX_SUMMARY_LENGTH = 400
 MAX_COST_BDT = 1_000_000
+MAX_SOURCES = 3
+FALLBACK_SOURCES = 2
 
 _BANGLA_RE = re.compile(r"[\u0980-\u09FF]")
 _THINK_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
@@ -213,7 +217,30 @@ def _clean_cost(data, language):
     }
 
 
-def validate_analysis(data, problem_text, categories):
+def _pick_sources(raw_ids, web_results):
+    """
+    Sources shown to the customer. They ALWAYS come from our own
+    Tavily list (the model only supplies numbers): invalid, duplicate
+    or out-of-range numbers and any model-written URLs are ignored. If
+    the model cited nothing usable we show the top few as general
+    references rather than hide the search.
+    """
+    if not web_results:
+        return []
+    chosen = []
+    if isinstance(raw_ids, list):
+        for item in raw_ids:
+            if isinstance(item, bool):
+                continue
+            if isinstance(item, str) and item.strip().isdigit():
+                item = int(item.strip())
+            if isinstance(item, int) and 1 <= item <= len(web_results) and item not in chosen:
+                chosen.append(item)
+    picked = [web_results[i - 1] for i in chosen[:MAX_SOURCES]] or web_results[:FALLBACK_SOURCES]
+    return [{"title": r["title"], "url": r["url"], "domain": r["domain"]} for r in picked]
+
+
+def validate_analysis(data, problem_text, categories, web_results=(), context_text=""):
     """Raises AnalysisError if unusable; otherwise returns the final dict."""
     summary = _clean_str(data.get("summary"), MAX_SUMMARY_LENGTH)
     if not summary:
@@ -232,7 +259,9 @@ def validate_analysis(data, problem_text, categories):
 
     # Emergency rule: backend keywords OR the model itself saying
     # emergency -> emergency, and the main-power-off tip comes first.
-    if has_emergency_keywords(problem_text):
+    # context_text = earlier turns of the conversation (Phase 4C): a
+    # follow-up in an emergency conversation is still an emergency.
+    if has_emergency_keywords(problem_text) or has_emergency_keywords(context_text):
         urgency = "emergency"
     if urgency == "emergency":
         tips = [t for t in tips if not _POWER_TIP_HINT_RE.search(t)]
@@ -249,20 +278,47 @@ def validate_analysis(data, problem_text, categories):
         "safety_tips": tips,
         "cost_estimate": _clean_cost(data, language),
         "language": language,
+        "sources": _pick_sources(data.get("sources"), list(web_results)),
     }
 
 
-def analyze_problem(problem_text):
+def analyze_problem(problem_text, history=None):
     """
     Full pipeline: build prompts -> call AI -> parse -> validate.
+
+    history (Phase 4C, optional): earlier turns of this conversation,
+    [{"problem", "summary"}, ...]. Only the last few are used, trimmed,
+    so a follow-up like "can it be cheaper?" is understood in context
+    without a big prompt. The server stores nothing: the client sends
+    the history with each request.
+
     Retries only when the reply was *malformed* (up to
     AI_MALFORMED_RETRIES extra attempts); transport errors (timeout,
     network, auth) fail immediately, so a down provider never causes
     a pile of billed retries. Raises AIServiceError on failure.
     """
     categories = list(Category.objects.all())
-    system_prompt = build_system_prompt([c.name for c in categories])
-    user_prompt = build_user_prompt(problem_text)
+    turns = trim_history(history)
+    context_text = " ".join(t["problem"] for t in turns)
+
+    # Phase 4B: live web references. Skipped for emergencies (speed
+    # matters, and the fixed "switch off the main power" tip is what
+    # counts) and silently empty when Tavily is off/failing.
+    web_results = []
+    if not (has_emergency_keywords(problem_text) or has_emergency_keywords(context_text)):
+        # A follow-up like "can it be cheaper?" is a useless search on its
+        # own, so it is searched together with the previous problem.
+        search_text = f"{problem_text} {turns[-1]['problem']}" if turns else problem_text
+        try:
+            web_results = find_references(search_text)
+        except Exception:
+            logger.exception("Web reference lookup failed")
+            web_results = []
+
+    system_prompt = build_system_prompt(
+        [c.name for c in categories], with_web=bool(web_results), with_history=bool(turns)
+    )
+    user_prompt = build_user_prompt(problem_text, web_results, turns)
 
     attempts = 1 + max(0, settings.AI_MALFORMED_RETRIES)
     last_error = None
@@ -270,7 +326,7 @@ def analyze_problem(problem_text):
         raw = request_completion(system_prompt, user_prompt)  # AIServiceError propagates
         try:
             data = parse_model_json(raw)
-            return validate_analysis(data, problem_text, categories)
+            return validate_analysis(data, problem_text, categories, web_results, context_text)
         except AnalysisError as exc:
             last_error = exc
             logger.warning("AI reply rejected (attempt %s/%s): %s", attempt, attempts, exc)

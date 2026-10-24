@@ -13,8 +13,9 @@ const TIMEOUT_MESSAGE = 'The AI is taking too long to answer. Please try again.'
  * POST /api/assistant/analyze/ — Auth required (JWT is attached by
  * apiClient's interceptor). Phase 1 + 2 backend: assistant/views.py.
  *
- * Body: { problem, area? }   — area is optional and only used to
- * filter providers; blank/whitespace areas are not sent at all.
+ * Body: { problem, area?, history? }   — area is optional and only used to
+ * filter providers (blank/whitespace areas are not sent at all); history is
+ * the last few { problem, summary } turns of this chat (see useAssistantChat).
  *
  * Response `data`: { category, category_fallback, urgency, summary,
  *   safety_tips, cost_estimate, language, providers: { area,
@@ -25,10 +26,16 @@ const TIMEOUT_MESSAGE = 'The AI is taking too long to answer. Please try again.'
  * Throws a plain Error (message ready to show; .status set) via
  * toServiceError, the same contract every other service module uses.
  */
-export async function analyzeProblem({ problem, area } = {}) {
+export async function analyzeProblem({ problem, area, history } = {}) {
   const body = { problem }
   const trimmedArea = typeof area === 'string' ? area.trim() : ''
   if (trimmedArea) body.area = trimmedArea
+  // Conversation memory (Phase 4C): earlier turns so follow-ups like
+  // "ar kom khoroch e kora jay?" make sense. Sent only when there are
+  // some; the server stores nothing and only uses the last few.
+  if (Array.isArray(history) && history.length > 0) {
+    body.history = history.map((turn) => ({ problem: turn.problem, summary: turn.summary || '' }))
+  }
 
   try {
     const response = await apiClient.post('/assistant/analyze/', body, {
