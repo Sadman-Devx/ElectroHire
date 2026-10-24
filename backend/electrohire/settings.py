@@ -406,3 +406,13 @@ AI_JSON_MODE = _env_bool("AI_JSON_MODE", default=True)
 AI_MALFORMED_RETRIES = int(os.environ.get("AI_MALFORMED_RETRIES", "1"))
 # Category used when the model names one that is not in the DB.
 AI_FALLBACK_CATEGORY = os.environ.get("AI_FALLBACK_CATEGORY", "Electrician").strip()
+
+# ── Tavily web search (Hackathon Phase 4B) ──────────────────────────
+# Optional. With no TAVILY_API_KEY the assistant simply skips web
+# references and behaves exactly as before.
+TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "").strip()
+# Fail-soft: a slow Tavily must never hold up the analysis for long.
+TAVILY_TIMEOUT_SECONDS = float(os.environ.get("TAVILY_TIMEOUT_SECONDS", "8"))
+TAVILY_MAX_RESULTS = int(os.environ.get("TAVILY_MAX_RESULTS", "5"))
+# Identical searches are cached so repeats don't spend credits.
+TAVILY_CACHE_SECONDS = int(os.environ.get("TAVILY_CACHE_SECONDS", "86400"))

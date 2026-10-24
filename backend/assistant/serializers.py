@@ -7,6 +7,28 @@ MIN_PROBLEM_LENGTH = 5
 MAX_PROBLEM_LENGTH = 1000
 
 
+MAX_HISTORY_ITEMS = 20  # sanity cap on the payload; only the last 3 are ever used
+
+
+class HistoryTurnSerializer(serializers.Serializer):
+    """One earlier exchange of the conversation (Phase 4C)."""
+
+    problem = serializers.CharField(
+        trim_whitespace=True, max_length=MAX_PROBLEM_LENGTH,
+        error_messages={
+            "required": "Each history item needs the earlier problem text.",
+            "blank": "Each history item needs the earlier problem text.",
+            "null": "Each history item needs the earlier problem text.",
+            "invalid": "History problem must be text.",
+            "max_length": "A history item is too long.",
+        },
+    )
+    summary = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, max_length=1000,
+        error_messages={"invalid": "History summary must be text.", "max_length": "A history item is too long."},
+    )
+
+
 class AnalyzeRequestSerializer(serializers.Serializer):
     problem = serializers.CharField(
         trim_whitespace=True,
@@ -36,6 +58,15 @@ class AnalyzeRequestSerializer(serializers.Serializer):
             "max_length": f"Area is too long (max {MAX_AREA_LENGTH} characters).",
         },
     )
+
+    # Optional, Phase 4C: earlier turns so follow-ups ("can it be cheaper?")
+    # make sense. Held by the client; the server stores nothing.
+    history = HistoryTurnSerializer(
+        many=True, required=False, allow_null=True, max_length=MAX_HISTORY_ITEMS
+    )
+
+    def validate_history(self, value):
+        return value or []
 
     def validate_area(self, value):
         return clean_area(value)

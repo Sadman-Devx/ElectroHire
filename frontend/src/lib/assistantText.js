@@ -18,6 +18,8 @@ export const TEXT = {
     safetyTips: 'Safety tips before the professional arrives',
     costTitle: 'Estimated cost',
     costNote: 'This is only a rough estimate',
+    sources: 'Sources',
+    sourcesNote: 'Found on the web — not verified by us',
     emergencyTitle: 'This looks like an emergency',
     emergencyBody:
       'Follow the first safety tip right now, keep away from the danger, and contact a professional. If anyone is in immediate danger, call 999.',
@@ -36,6 +38,8 @@ export const TEXT = {
     safetyTips: 'পেশাদার আসার আগে নিরাপত্তা পরামর্শ',
     costTitle: 'আনুমানিক খরচ',
     costNote: 'এটি শুধু একটি মোটামুটি আন্দাজ',
+    sources: 'সূত্র',
+    sourcesNote: 'ওয়েব থেকে পাওয়া — আমরা যাচাই করিনি',
     emergencyTitle: 'এটি একটি জরুরি অবস্থা মনে হচ্ছে',
     emergencyBody:
       'এখনই প্রথম নিরাপত্তা পরামর্শটি অনুসরণ করুন, বিপদ থেকে দূরে থাকুন এবং একজন পেশাদারের সাথে যোগাযোগ করুন। কেউ তাৎক্ষণিক বিপদে থাকলে ৯৯৯-এ কল করুন।',
@@ -87,4 +91,16 @@ export function formatCostRange(cost) {
   return cost.min === cost.max
     ? formatTaka(cost.min)
     : `${formatTaka(cost.min)} – ${formatTaka(cost.max)}`
+}
+
+/**
+ * Keep only sources whose link is a plain http(s) URL. The backend
+ * already filters, but this is the last line of defence against a
+ * "javascript:" link ever reaching an href.
+ */
+export function safeSources(sources) {
+  if (!Array.isArray(sources)) return []
+  return sources.filter(
+    (source) => source && typeof source.url === 'string' && /^https?:\/\//i.test(source.url)
+  )
 }
