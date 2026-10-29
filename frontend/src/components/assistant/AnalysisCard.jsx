@@ -95,6 +95,13 @@ function AnalysisCard({ result }) {
             </ul>
           </div>
         ) : null}
+
+        <p
+          data-testid="assistant-disclaimer"
+          className="mt-4 text-xs italic text-[var(--color-text-subtle)]"
+        >
+          {t.disclaimer}
+        </p>
       </Card>
     </div>
   )
