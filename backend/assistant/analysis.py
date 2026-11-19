@@ -13,6 +13,8 @@ deterministic backend rules:
                  always the fixed "switch off the main power" tip
   * cost      -> sane non-negative min<=max range, else omitted
   * disclaimer-> fixed backend text, never model-generated
+  * contact details -> phone numbers / emails are redacted from the
+                 summary and tips (the AI must never hand out contacts)
   * sources   -> only from our own Tavily results (Phase 4B), by number
 
 Public entry point: analyze_problem(problem_text).
@@ -42,6 +44,11 @@ MAX_SOURCES = 3
 FALLBACK_SOURCES = 2
 
 _BANGLA_RE = re.compile(r"[\u0980-\u09FF]")
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+# A run of digits with phone-style separators; only counted as a phone
+# number when it holds 10+ digits (so "1000-1500 taka" is left alone).
+_PHONE_CANDIDATE_RE = re.compile(r"\+?\d[\d\s().-]{8,}\d")
+REDACTED = "[hidden]"
 _THINK_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
@@ -160,6 +167,27 @@ def _clean_str(value, max_len):
     return value[:max_len].rstrip()
 
 
+def redact_contact_details(text):
+    """
+    Phone numbers and emails never appear in what the customer reads
+    from the AI. A model can hallucinate a number (someone would call a
+    stranger) or echo one the customer typed. Provider contact details
+    are only ever shown through the app's own contact flow.
+    """
+    text = _EMAIL_RE.sub(REDACTED, text)
+
+    def _maybe_phone(match):
+        digits = sum(ch.isdigit() for ch in match.group(0))  # Bangla digits count too
+        return REDACTED if digits >= 10 else match.group(0)
+
+    return _PHONE_CANDIDATE_RE.sub(_maybe_phone, text)
+
+
+def _clean_ai_text(value, max_len):
+    """_clean_str + contact-detail redaction, for text the customer reads."""
+    return redact_contact_details(_clean_str(value, max_len))
+
+
 def _number(value):
     if isinstance(value, bool):
         return None
@@ -197,7 +225,7 @@ def _clean_tips(raw_tips):
         return []
     tips = []
     for tip in raw_tips:
-        cleaned = _clean_str(tip, MAX_TIP_LENGTH)
+        cleaned = _clean_ai_text(tip, MAX_TIP_LENGTH)
         if cleaned and cleaned not in tips:
             tips.append(cleaned)
     return tips
@@ -242,7 +270,7 @@ def _pick_sources(raw_ids, web_results):
 
 def validate_analysis(data, problem_text, categories, web_results=(), context_text=""):
     """Raises AnalysisError if unusable; otherwise returns the final dict."""
-    summary = _clean_str(data.get("summary"), MAX_SUMMARY_LENGTH)
+    summary = _clean_ai_text(data.get("summary"), MAX_SUMMARY_LENGTH)
     if not summary:
         raise AnalysisError("AI reply had no summary")
 
