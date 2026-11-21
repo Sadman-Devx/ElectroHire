@@ -96,6 +96,8 @@ def broadcast_new_message(message):
                 "sender_id": message.sender_id,
                 "sender_name": message.sender.name,
                 "content": message.content,
+                "message_type": message.message_type,
+                "preview": message.preview,
                 "created_at": message.created_at.isoformat(),
                 "is_read": message.is_read,
             },

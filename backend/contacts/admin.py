@@ -13,11 +13,27 @@ class ContactLogAdmin(admin.ModelAdmin):
 
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
-    list_display = ("id", "sender", "receiver", "short_content", "is_read", "created_at")
-    list_filter = ("is_read", "created_at")
-    search_fields = ("sender__name", "sender__email", "receiver__name", "receiver__email", "content")
-    readonly_fields = ("created_at",)
+    list_display = (
+        "id",
+        "sender",
+        "receiver",
+        "message_type",
+        "short_content",
+        "is_read",
+        "created_at",
+    )
+    list_filter = ("message_type", "is_read", "created_at")
+    search_fields = (
+        "sender__name",
+        "sender__email",
+        "receiver__name",
+        "receiver__email",
+        "content",
+        "attachment_name",
+    )
+    readonly_fields = ("created_at", "attachment_size", "attachment_mime")
 
     @admin.display(description="Content")
     def short_content(self, obj):
-        return obj.content[:50] + ("…" if len(obj.content) > 50 else "")
+        text = obj.preview
+        return text[:50] + ("…" if len(text) > 50 else "")
