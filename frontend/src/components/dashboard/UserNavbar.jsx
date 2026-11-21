@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 
 const NAV_LINKS = [
   { label: 'Dashboard', to: '/dashboard' },
+  { label: 'AI Assistant', to: '/assistant' },
   { label: 'Messages', to: '/chats', showUnreadBadge: true },
   { label: 'Bookings', to: '/bookings' },
   { label: 'Account', to: '/account' },

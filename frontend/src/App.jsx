@@ -21,6 +21,7 @@ import ReportProviderPage from '@/pages/ReportProviderPage'
 import BookProviderPage from '@/pages/BookProviderPage'
 import MyBookingsPage from '@/pages/MyBookingsPage'
 import ProviderBookingsPage from '@/pages/ProviderBookingsPage'
+import AssistantPage from '@/pages/AssistantPage'
 import TermsPage from '@/pages/TermsPage'
 import NotFoundPage from '@/pages/NotFoundPage'
 
@@ -143,6 +144,16 @@ function App() {
         element={
           <ProtectedRoute>
             <UserDashboardPage />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Hackathon Phase 3 — AI Assistant chat (needs login: every call is billed + rate limited) */}
+      <Route
+        path="/assistant"
+        element={
+          <ProtectedRoute>
+            <AssistantPage />
           </ProtectedRoute>
         }
       />
