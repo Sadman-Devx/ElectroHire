@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { classifyFile, MESSAGE_TYPE } from '@/lib/chatAttachments'
 import { connectChatSocket } from '@/services/chatSocket'
 import { getMessageThread, sendMessage } from '@/services/chatService'
 
@@ -35,6 +36,16 @@ const TYPING_INDICATOR_TIMEOUT_MS = 4000
  *     re-syncs from the server -- one source of truth for
  *     ordering/is_read, no hand-rolled merge logic.
  *
+ * Attachments update: send() accepts either a plain string (text, as
+ * before) or an object:
+ *     send({ content?, attachment: File, messageType: 'image'|'file'|'voice', durationSeconds? })
+ * An attachment bubble appears instantly using a local preview of the
+ * file (`_localUrl`) with an upload progress value (`_progress`, 0..1),
+ * and keeps everything needed to retry (`_retryPayload`) if the upload
+ * fails. While an upload is in flight, background re-syncs are held
+ * back and run once it finishes -- otherwise a re-sync landing
+ * mid-upload would wipe the pending bubble off the screen.
+ *
  *   const {
  *     messages, isLoading, error, send, isSending, sendError,
  *     connectionStatus, isOtherTyping, notifyTyping, retryFailedMessage,
@@ -63,6 +74,14 @@ export function useChatThread(conversation, viewerRole, { onThreadOpened, onMess
   const socketRef = useRef(null)
   const typingClearTimerRef = useRef(null)
 
+  // Attachment upload bookkeeping (see header comment).
+  const uploadsInFlightRef = useRef(0)
+  const resyncAfterUploadRef = useRef(false)
+  const refreshThreadRef = useRef(null)
+  // Local blob: URLs created for pending bubbles, so they can be
+  // released (browsers keep the file in memory until revoked).
+  const localUrlsRef = useRef(new Set())
+
   // onThreadOpened/onMessageSent come from useConversations(), whose
   // markThreadRead/applySentMessage are plain functions, not
   // useCallback-memoized -- so their identity changes on every render
@@ -80,6 +99,15 @@ export function useChatThread(conversation, viewerRole, { onThreadOpened, onMess
     onMessageSentRef.current = onMessageSent
   })
 
+  // Free any remaining local previews when the chat is closed.
+  useEffect(() => {
+    const localUrls = localUrlsRef.current
+    return () => {
+      localUrls.forEach((url) => URL.revokeObjectURL(url))
+      localUrls.clear()
+    }
+  }, [])
+
   // Single effect owning the whole "this conversation is open" lifecycle:
   // initial load, the 20s fallback poll, and the WebSocket. All three
   // share one locally-defined `loadThread` (rather than a hoisted
@@ -93,6 +121,12 @@ export function useChatThread(conversation, viewerRole, { onThreadOpened, onMess
     let isMounted = true
 
     async function loadThread({ silent = false } = {}) {
+      // An attachment is uploading: replacing the list now would drop
+      // its pending bubble. Remember to re-sync once it finishes.
+      if (silent && uploadsInFlightRef.current > 0) {
+        resyncAfterUploadRef.current = true
+        return
+      }
       if (isFetchingRef.current) return
       isFetchingRef.current = true
       if (!silent) {
@@ -102,7 +136,13 @@ export function useChatThread(conversation, viewerRole, { onThreadOpened, onMess
       try {
         const data = await getMessageThread({ providerId, withUserId })
         if (isMounted) {
-          setMessages(data)
+          // A failed *attachment* is kept on screen (it holds the file
+          // the person picked / the voice note they recorded) so a
+          // re-sync can't silently throw it away before they retry.
+          setMessages((current) => [
+            ...data,
+            ...current.filter((message) => message._failed && message._retryPayload),
+          ])
           if (!silent) onThreadOpenedRef.current?.(otherUserId)
         }
       } catch (err) {
@@ -118,6 +158,8 @@ export function useChatThread(conversation, viewerRole, { onThreadOpened, onMess
         if (isMounted && !silent) setIsLoading(false)
       }
     }
+
+    refreshThreadRef.current = () => loadThread({ silent: true })
 
     loadThread()
     const intervalId = window.setInterval(() => loadThread({ silent: true }), FALLBACK_POLL_INTERVAL_MS)
@@ -156,6 +198,7 @@ export function useChatThread(conversation, viewerRole, { onThreadOpened, onMess
       // at `true` forever (the composer/thread would never leave its
       // loading state even though messages did load internally).
       isFetchingRef.current = false
+      refreshThreadRef.current = null
       window.clearInterval(intervalId)
       socket.close()
       socketRef.current = null
@@ -169,10 +212,23 @@ export function useChatThread(conversation, viewerRole, { onThreadOpened, onMess
     socketRef.current?.sendTyping(isTyping)
   }, [])
 
+  const releaseLocalUrl = useCallback((url) => {
+    if (!url) return
+    URL.revokeObjectURL(url)
+    localUrlsRef.current.delete(url)
+  }, [])
+
   const send = useCallback(
-    async (content) => {
-      const trimmed = content.trim()
-      if (!providerId || !trimmed) return
+    async (input) => {
+      const payload = typeof input === 'string' ? { content: input } : input || {}
+      const trimmed = (payload.content ?? '').trim()
+      const attachment = payload.attachment ?? null
+      if (!providerId || (!trimmed && !attachment)) return
+
+      const messageType = attachment
+        ? payload.messageType || classifyFile(attachment)
+        : MESSAGE_TYPE.TEXT
+      const durationSeconds = payload.durationSeconds ?? null
 
       notifyTyping(false)
       setIsSending(true)
@@ -185,22 +241,62 @@ export function useChatThread(conversation, viewerRole, { onThreadOpened, onMess
       // (message.sender_id !== otherUserId) renders it on the right
       // side right away, with no dependency on knowing our own real
       // user id (AuthContext only stores { role, name } today).
-      const tempId = `pending-${Date.now()}`
-      setMessages((current) => [
-        ...current,
-        {
-          id: tempId,
-          sender_id: null,
-          content: trimmed,
-          created_at: new Date().toISOString(),
-          is_read: false,
-          _pending: true,
-        },
-      ])
+      const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+
+      let localUrl = null
+      if (attachment && messageType !== MESSAGE_TYPE.FILE) {
+        localUrl = URL.createObjectURL(attachment)
+        localUrlsRef.current.add(localUrl)
+      }
+
+      const optimistic = {
+        id: tempId,
+        sender_id: null,
+        content: trimmed,
+        created_at: new Date().toISOString(),
+        is_read: false,
+        message_type: messageType,
+        _pending: true,
+      }
+      if (attachment) {
+        optimistic.attachment_name = attachment.name
+        optimistic.attachment_size = attachment.size
+        optimistic.attachment_mime = attachment.type
+        optimistic.duration_seconds = durationSeconds
+        optimistic._localUrl = localUrl
+        optimistic._progress = 0
+        // Everything needed to try again without asking the person to
+        // pick the file / re-record the voice note.
+        optimistic._retryPayload = { content: trimmed, attachment, messageType, durationSeconds }
+      }
+      setMessages((current) => [...current, optimistic])
+
+      if (attachment) uploadsInFlightRef.current += 1
 
       try {
-        const created = await sendMessage({ providerId, withUserId, content: trimmed })
-        onMessageSentRef.current?.(otherUserId, created)
+        const request = { providerId, withUserId, content: trimmed }
+        if (attachment) {
+          request.attachment = attachment
+          request.messageType = messageType
+          if (durationSeconds != null) request.durationSeconds = durationSeconds
+          let lastPercent = -1
+          request.onUploadProgress = (fraction) => {
+            const percent = Math.round(fraction * 100)
+            if (percent === lastPercent) return
+            lastPercent = percent
+            setMessages((current) =>
+              current.map((message) => (message.id === tempId ? { ...message, _progress: fraction } : message))
+            )
+          }
+        }
+
+        const created = await sendMessage(request)
+        // The conversation list's "last message" line uses the short
+        // label for attachments ("📷 Photo") rather than empty text.
+        onMessageSentRef.current?.(otherUserId, {
+          content: created.preview ?? created.content,
+          created_at: created.created_at,
+        })
 
         // Reconcile with the real id/timestamp the instant the POST
         // succeeds, rather than waiting on the next sync -- flips the
@@ -209,13 +305,34 @@ export function useChatThread(conversation, viewerRole, { onThreadOpened, onMess
         // loadThread() first, that server-side list already contains
         // this same message for real, so the tempId placeholder is
         // simply absent from it -- no duplicate either way.
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === tempId
-              ? { ...message, id: created.id, created_at: created.created_at, _pending: false }
-              : message
-          )
-        )
+        setMessages((current) => {
+          // A re-sync can already have delivered the real message.
+          if (current.some((message) => message.id === created.id)) {
+            return current.filter((message) => message.id !== tempId)
+          }
+          return current.map((message) => {
+            if (message.id !== tempId) return message
+            const {
+              _localUrl: previousLocalUrl, // eslint-disable-line no-unused-vars
+              _progress, // eslint-disable-line no-unused-vars
+              _retryPayload, // eslint-disable-line no-unused-vars
+              ...rest
+            } = message
+            return {
+              ...rest,
+              id: created.id,
+              created_at: created.created_at,
+              attachment_url: created.attachment_url ?? null,
+              attachment_name: created.attachment_name ?? rest.attachment_name,
+              attachment_size: created.attachment_size ?? rest.attachment_size,
+              attachment_mime: created.attachment_mime ?? rest.attachment_mime,
+              duration_seconds: created.duration_seconds ?? rest.duration_seconds,
+              _pending: false,
+            }
+          })
+        })
+        // The bubble now points at the server URL; free the local copy.
+        releaseLocalUrl(localUrl)
       } catch (err) {
         setSendError(err.message || 'Could not send your message. Please try again.')
         setMessages((current) =>
@@ -225,19 +342,28 @@ export function useChatThread(conversation, viewerRole, { onThreadOpened, onMess
         )
       } finally {
         setIsSending(false)
+        if (attachment) {
+          uploadsInFlightRef.current = Math.max(0, uploadsInFlightRef.current - 1)
+          if (uploadsInFlightRef.current === 0 && resyncAfterUploadRef.current) {
+            resyncAfterUploadRef.current = false
+            refreshThreadRef.current?.()
+          }
+        }
       }
     },
-    [providerId, withUserId, otherUserId, notifyTyping]
+    [providerId, withUserId, otherUserId, notifyTyping, releaseLocalUrl]
   )
 
-  // Lets a failed bubble be tapped to resend without retyping it --
-  // drops the failed placeholder and re-runs send() with its content.
+  // Lets a failed bubble be tapped to resend without retyping it (or
+  // re-picking the file / re-recording the voice note) -- drops the
+  // failed placeholder and re-runs send() with what it was built from.
   const retryFailedMessage = useCallback(
     (failedMessage) => {
       setMessages((current) => current.filter((message) => message.id !== failedMessage.id))
-      send(failedMessage.content)
+      releaseLocalUrl(failedMessage._localUrl)
+      send(failedMessage._retryPayload ?? failedMessage.content)
     },
-    [send]
+    [send, releaseLocalUrl]
   )
 
   return {

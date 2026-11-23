@@ -3,6 +3,7 @@ from datetime import datetime, timezone as dt_timezone
 from django.contrib.auth import get_user_model
 from django.db.models import Q
 from rest_framework import status
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
@@ -10,6 +11,7 @@ from core.response import success_response, error_response, first_error_message
 from providers.models import Provider
 from .models import ContactLog, Message
 from .services import broadcast_new_message, resolve_other_user
+from .validators import MAX_REQUEST_BYTES
 from .serializers import (
     ContactCheckSerializer,
     ContactCreateSerializer,
@@ -160,6 +162,8 @@ class MessageListCreateView(APIView):
     """
 
     permission_classes = [IsAuthenticated]
+    # JSON for plain text messages (unchanged), multipart for attachments.
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def _resolve_other_user(self, request, provider):
         """
@@ -206,7 +210,9 @@ class MessageListCreateView(APIView):
             | Q(sender=other_user, receiver=request.user)
         ).select_related("sender")
 
-        data = MessageListItemSerializer(thread, many=True).data
+        data = MessageListItemSerializer(
+            thread, many=True, context={"request": request}
+        ).data
 
         # Opening the thread marks the other party's messages as read —
         # this happens *after* serializing, so the response still reflects
@@ -218,6 +224,21 @@ class MessageListCreateView(APIView):
         return success_response(data=data)
 
     def post(self, request, provider_id):
+        # Reject oversized uploads from the Content-Length header *before*
+        # DRF reads/parses the body (request.data is what triggers
+        # parsing), so a huge file never gets written to a temp file
+        # just to be refused afterwards. The serializer re-checks the
+        # real size per file type; this is only the cheap first gate.
+        try:
+            declared_length = int(request.META.get("CONTENT_LENGTH") or 0)
+        except (TypeError, ValueError):
+            declared_length = 0
+        if declared_length > MAX_REQUEST_BYTES:
+            return error_response(
+                "That file is too large to send.",
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
         provider, err = self._resolve_provider(provider_id)
         if err:
             return err
@@ -232,10 +253,17 @@ class MessageListCreateView(APIView):
                 first_error_message(serializer.errors), status.HTTP_400_BAD_REQUEST
             )
 
+        data = serializer.validated_data
         message = Message.objects.create(
             sender=request.user,
             receiver=other_user,
-            content=serializer.validated_data["content"],
+            content=data["content"],
+            message_type=data["message_type"],
+            attachment=data.get("attachment"),
+            attachment_name=data.get("attachment_name", ""),
+            attachment_size=data.get("attachment_size", 0),
+            attachment_mime=data.get("attachment_mime", ""),
+            duration_seconds=data.get("duration_seconds"),
         )
 
         # Only the customer side of this pair "contacts" a provider — skip
@@ -251,7 +279,9 @@ class MessageListCreateView(APIView):
         # poll to see it. A no-op if nobody has that thread open.
         broadcast_new_message(message)
 
-        response_data = MessageCreateResponseSerializer(message).data
+        response_data = MessageCreateResponseSerializer(
+            message, context={"request": request}
+        ).data
         return success_response(data=response_data, status_code=status.HTTP_201_CREATED)
 
 
@@ -303,7 +333,7 @@ class ConversationListView(APIView):
                         "other_user_id": other_user.id,
                         "other_user_name": other_user.name,
                         "other_user_role": other_user.role,
-                        "last_message": last_message.content if last_message else "",
+                        "last_message": last_message.preview if last_message else "",
                         "last_message_at": last_message.created_at if last_message else None,
                         "unread_count": unread_count,
                     }
