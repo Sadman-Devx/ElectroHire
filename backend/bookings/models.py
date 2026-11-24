@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.conf import settings
 from django.db import models
 
@@ -6,39 +8,37 @@ from providers.models import Provider
 
 class Booking(models.Model):
     """
-    Booking Table — new feature, not in the API Contract PDF or App
-    Build doc (both predate this request). Modeled after the same
-    conventions Report/Rating/ContactLog already establish in this
-    project: a plain APIView-backed model, explicit index names (no
-    makemigrations access in this sandbox — see the migration's
-    docstring), and business-rule checks kept out of the model itself.
+    Booking Table — a user asking a specific provider to do a job on a
+    given date (the step *after* Contact/Chat).
 
-    A Booking is a user asking a specific provider to do a job on a
-    given date — the step *after* Contact/Chat ("Kal sokal 9 tar dike
-    ashun" in the API Contract's own chat example already implies a
-    scheduled visit; this feature makes that schedulable data instead
-    of just chat text).
+    `category` is a nullable FK rather than re-deriving it from
+    provider.categories — a provider can offer several categories and the
+    customer may say which job this booking is for.
 
-    `category` is a nullable FK (not required) rather than re-deriving
-    it from provider.categories — a provider can offer several
-    categories (ProviderCategory, providers/models.py), and the
-    customer may want to say which specific job this booking is for,
-    but the field is optional since a provider with only one category
-    doesn't need the customer to repeat it.
+    `scheduled_date` + `scheduled_time` are two separate fields (DateField
+    + TimeField), mirroring the frontend's separate date/time pickers.
 
-    `scheduled_date` + `scheduled_time` are kept as two separate fields
-    (DateField + TimeField) rather than one DateTimeField, mirroring
-    why this project already treats dates and times as distinct concepts
-    elsewhere (see providers/views.py's DateField/DateTimeField
-    coercion-bug fix, Day 4) — the frontend's date-picker and
-    time-picker are two separate form controls, and keeping the model
-    shaped the same way avoids a similar coercion mismatch here.
-
-    STATUS_CHOICES models a simple one-way lifecycle enforced in the
-    view layer (BookingStatusUpdateView), not here:
+    STATUS_CHOICES models a one-way lifecycle enforced in the view layer
+    (BookingStatusUpdateView), not here:
         pending -> confirmed -> completed
         pending -> rejected
         pending/confirmed -> cancelled
+
+    Provider-only commission (see bookings/commission.py for the rules)
+    ------------------------------------------------------------------
+    The customer is shown `quoted_price` as the final total. The platform
+    commission is charged to the PROVIDER only:
+      - quoted_price      the provider's quote, set when they confirm.
+      - commission_rate   percent snapshot at quote time, so changing the
+                          rate later never rewrites old bookings.
+      - commission_amount quoted_price x rate, snapshot at quote time.
+      - commission_status where that money stands (COMMISSION_* below).
+      - payment_method    "cash" (provider collects, owes commission) or
+                          "online" (reserved: platform collects and
+                          deducts commission from the payout).
+      - completed_at      when the provider marked the job completed.
+      - commission_paid_at / commission_reference
+                          filled by admin when the provider settles dues.
     """
 
     STATUS_PENDING = "pending"
@@ -52,6 +52,28 @@ class Booking(models.Model):
         (STATUS_COMPLETED, "Completed"),
         (STATUS_CANCELLED, "Cancelled"),
         (STATUS_REJECTED, "Rejected"),
+    )
+
+    PAYMENT_CASH = "cash"
+    PAYMENT_ONLINE = "online"
+    PAYMENT_CHOICES = (
+        (PAYMENT_CASH, "Cash to provider"),
+        (PAYMENT_ONLINE, "Online via platform"),
+    )
+
+    COMMISSION_NONE = "none"
+    COMMISSION_PENDING = "pending"
+    COMMISSION_DUE = "due"
+    COMMISSION_PAID = "paid"
+    COMMISSION_WAIVED = "waived"
+    COMMISSION_DEDUCTED = "deducted"
+    COMMISSION_STATUS_CHOICES = (
+        (COMMISSION_NONE, "No commission"),
+        (COMMISSION_PENDING, "Not yet due"),
+        (COMMISSION_DUE, "Due from provider"),
+        (COMMISSION_PAID, "Paid by provider"),
+        (COMMISSION_WAIVED, "Waived"),
+        (COMMISSION_DEDUCTED, "Deducted from online payment"),
     )
 
     user = models.ForeignKey(
@@ -79,6 +101,29 @@ class Booking(models.Model):
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING
     )
+
+    # --- Provider-only commission --------------------------------------
+    quoted_price = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    commission_rate = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True
+    )
+    commission_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0.00")
+    )
+    commission_status = models.CharField(
+        max_length=20,
+        choices=COMMISSION_STATUS_CHOICES,
+        default=COMMISSION_NONE,
+    )
+    payment_method = models.CharField(
+        max_length=10, choices=PAYMENT_CHOICES, default=PAYMENT_CASH
+    )
+    completed_at = models.DateTimeField(null=True, blank=True)
+    commission_paid_at = models.DateTimeField(null=True, blank=True)
+    commission_reference = models.CharField(max_length=100, blank=True, default="")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -91,7 +136,20 @@ class Booking(models.Model):
             ),
             # Customer's "my bookings" list filters by these.
             models.Index(fields=["user", "status"], name="bookings_user_status_idx"),
+            # "How much does this provider owe us?" is asked on every
+            # confirm and on every commission-summary load.
+            models.Index(
+                fields=["provider", "commission_status"],
+                name="bookings_prov_comm_idx",
+            ),
         ]
 
     def __str__(self):
         return f"{self.user_id} -> {self.provider_id} @ {self.scheduled_date} ({self.status})"
+
+    @property
+    def provider_net_amount(self):
+        """What the provider keeps after commission, or None if no quote/commission."""
+        if self.quoted_price is None or self.commission_status == self.COMMISSION_NONE:
+            return None
+        return (self.quoted_price - self.commission_amount).quantize(Decimal("0.01"))

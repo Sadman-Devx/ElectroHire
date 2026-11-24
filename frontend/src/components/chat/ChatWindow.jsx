@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils'
 
 import { ChatEmptyState } from './ChatEmptyState'
+import { ChatSafetyNotice } from './ChatSafetyNotice'
 import { ChatWindowHeader } from './ChatWindowHeader'
 import { MessageComposer } from './MessageComposer'
 import { MessageThread } from './MessageThread'
@@ -71,6 +72,8 @@ function ChatWindow({
           {sendError}
         </p>
       ) : null}
+
+      <ChatSafetyNotice />
 
       <MessageComposer
         onSend={onSend}
