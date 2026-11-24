@@ -3,6 +3,7 @@ from rest_framework import serializers
 from django.core.exceptions import ValidationError as DjangoValidationError
 
 from providers.models import Provider
+from .masking import mask_contact_info
 from .models import ContactLog, Message
 from .validators import (
     MAX_VOICE_SECONDS,
@@ -153,7 +154,12 @@ class MessageSendSerializer(serializers.Serializer):
                 )
             if not content:
                 raise serializers.ValidationError("Message content cannot be empty.")
+            # Provider-only commission: phone numbers / e-mails / messenger
+            # links are hidden so deals stay on the platform
+            # (see contacts/masking.py).
+            content, was_masked = mask_contact_info(content)
             attrs["content"] = content
+            attrs["contact_masked"] = was_masked
             attrs["message_type"] = TYPE_TEXT
             return attrs
 
@@ -165,7 +171,10 @@ class MessageSendSerializer(serializers.Serializer):
 
         attrs["message_type"] = message_type
         # A voice note carries no caption; photos/files may have one.
-        attrs["content"] = "" if message_type == TYPE_VOICE else content
+        # The caption is masked exactly like a plain text message.
+        caption, was_masked = mask_contact_info("" if message_type == TYPE_VOICE else content)
+        attrs["content"] = caption
+        attrs["contact_masked"] = was_masked
         attrs["attachment_name"] = clean_filename(attachment.name)
         attrs["attachment_size"] = attachment.size
         attrs["attachment_mime"] = mime

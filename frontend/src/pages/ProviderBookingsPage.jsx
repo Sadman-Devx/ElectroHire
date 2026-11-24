@@ -4,36 +4,37 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DashboardNavbar } from '@/components/dashboard/DashboardNavbar'
 import { Footer } from '@/components/home/Footer'
+import { CommissionSummaryCard } from '@/components/bookings/CommissionSummaryCard'
 import { ProviderBookingCard } from '@/components/bookings/ProviderBookingCard'
 import { ProviderOnlyNotice } from '@/components/providers/ProviderOnlyNotice'
 import { useAuth } from '@/context/useAuth'
 import { useProviderBookings } from '@/hooks/useProviderBookings'
+import { useProviderCommission } from '@/hooks/useProviderCommission'
 import { useUpdateBookingStatus } from '@/hooks/useUpdateBookingStatus'
+import { toMoneyNumber } from '@/lib/formatMoney'
 
 /**
- * Day 11, Dev 1/3: Provider Bookings page — the signed-in provider's
- * own incoming booking requests, sourced from
- * GET /api/bookings/provider/.
+ * Provider Bookings page — the signed-in provider's own incoming
+ * booking requests (GET /api/bookings/provider/), plus their platform
+ * commission ledger (GET /api/bookings/provider/commission/).
  *
- * Route: /provider/bookings (protected — see App.jsx). Linked from
- * DashboardNavbar. Same "you're signed in, but not as a provider"
- * role gate ProviderDashboardPage/ProviderProfileSetupPage already
- * use (ProviderOnlyNotice), since a "user"-role account has no
- * provider profile for GET /api/bookings/provider/ to look up (that
- * endpoint 404s for exactly that case — see
- * ProviderBookingListView's own docstring — which would otherwise
- * surface here as a confusing generic error rather than this page's
- * existing, friendlier "wrong account type" message).
+ * Route: /provider/bookings (protected — see App.jsx). Same "you're
+ * signed in, but not as a provider" role gate as ProviderDashboardPage.
  *
- * Confirm/Reject/Mark completed all apply the new status to local
- * state immediately via useProviderBookings()'s applyStatusUpdate
- * (same reasoning as MyBookingsPage's own Cancel action — see that
- * page's doc comment) rather than reloading the whole list.
+ * Provider-only commission flow on this page:
+ *   - Confirm needs a price (the customer's final total). The server
+ *     returns the locked-in commission, which is merged into the card
+ *     straight away via applyStatusUpdate's third argument.
+ *   - Completing a cash job makes the commission "due", so the
+ *     commission summary is refetched after every successful change.
+ *   - When unpaid commission reaches the limit, Confirm is disabled on
+ *     every pending card (and the server refuses it too).
  */
 function ProviderBookingsPage() {
   const { user } = useAuth()
 
   const { bookings, isLoading, error, refetch, applyStatusUpdate } = useProviderBookings()
+  const { summary, refetch: refetchCommission } = useProviderCommission()
   const { updateStatus, isPending, error: updateError } = useUpdateBookingStatus()
 
   if (user && user.role !== 'provider') {
@@ -42,10 +43,23 @@ function ProviderBookingsPage() {
     )
   }
 
-  async function handleUpdateStatus(bookingId, nextStatus) {
-    const ok = await updateStatus({ bookingId, status: nextStatus })
-    if (ok) applyStatusUpdate(bookingId, nextStatus)
+  async function handleUpdateStatus(bookingId, nextStatus, { quotedPrice } = {}) {
+    const result = await updateStatus({ bookingId, status: nextStatus, quotedPrice })
+    if (result) {
+      applyStatusUpdate(bookingId, nextStatus, typeof result === 'object' ? result : {})
+      // Confirming locks a rate, completing makes the commission due,
+      // rejecting voids it — every one changes the ledger.
+      refetchCommission()
+    }
   }
+
+  function handleRefresh() {
+    refetch()
+    refetchCommission()
+  }
+
+  const commissionRate = toMoneyNumber(summary?.rate_percent)
+  const isBlocked = Boolean(summary?.is_blocked)
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg)]">
@@ -60,10 +74,12 @@ function ProviderBookingsPage() {
                 Service requests customers have sent you.
               </p>
             </div>
-            <Button type="button" variant="secondary" size="sm" onClick={refetch} disabled={isLoading}>
+            <Button type="button" variant="secondary" size="sm" onClick={handleRefresh} disabled={isLoading}>
               <RefreshCw className="h-3.5 w-3.5" /> Refresh
             </Button>
           </div>
+
+          <CommissionSummaryCard summary={summary} />
 
           {updateError ? (
             <p role="alert" className="mb-4 text-sm font-medium text-[var(--color-danger)]">
@@ -80,7 +96,7 @@ function ProviderBookingsPage() {
             <Card className="flex flex-col items-center gap-2 py-16 text-center">
               <AlertCircle className="h-9 w-9 text-[var(--color-danger)]" aria-hidden="true" />
               <p className="text-sm font-medium text-[var(--color-danger)]">{error}</p>
-              <Button type="button" variant="secondary" size="sm" className="mt-2" onClick={refetch}>
+              <Button type="button" variant="secondary" size="sm" className="mt-2" onClick={handleRefresh}>
                 Try again
               </Button>
             </Card>
@@ -97,6 +113,8 @@ function ProviderBookingsPage() {
                   booking={booking}
                   onUpdateStatus={handleUpdateStatus}
                   isUpdating={isPending(booking.id)}
+                  commissionRate={commissionRate}
+                  isBlocked={isBlocked}
                 />
               ))}
             </div>

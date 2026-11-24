@@ -82,9 +82,14 @@ export function useProviderBookings() {
     setReloadToken((token) => token + 1)
   }, [])
 
-  const applyStatusUpdate = useCallback((bookingId, nextStatus) => {
+  // `extra` carries the commission fields the server returned for this
+  // transition (quoted_price, commission_amount, ...), so a confirmed /
+  // completed card shows real numbers immediately without a refetch.
+  const applyStatusUpdate = useCallback((bookingId, nextStatus, extra = {}) => {
     setBookings((current) =>
-      current.map((booking) => (booking.id === bookingId ? { ...booking, status: nextStatus } : booking))
+      current.map((booking) =>
+        booking.id === bookingId ? { ...booking, ...extra, id: booking.id, status: nextStatus } : booking
+      )
     )
   }, [])
 

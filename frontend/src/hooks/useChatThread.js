@@ -321,6 +321,11 @@ export function useChatThread(conversation, viewerRole, { onThreadOpened, onMess
             return {
               ...rest,
               id: created.id,
+              // The server may have hidden a phone number / e-mail in
+              // the text (contacts/masking.py) -- show what was really
+              // stored, not what was typed, so the sender sees exactly
+              // what the other person sees.
+              content: created.content ?? rest.content,
               created_at: created.created_at,
               attachment_url: created.attachment_url ?? null,
               attachment_name: created.attachment_name ?? rest.attachment_name,

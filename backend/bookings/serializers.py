@@ -1,10 +1,18 @@
+from decimal import Decimal
+
 from django.utils import timezone
 from rest_framework import serializers
 
 from categories.models import Category
+from contacts.masking import mask_contact_info
 from providers.models import Provider
 
 from .models import Booking
+
+# Sanity bounds for a provider's quote (BDT). Not a business rule about
+# what a fair price is -- just stops typos like an extra five zeros.
+MIN_QUOTED_PRICE = Decimal("1")
+MAX_QUOTED_PRICE = Decimal("1000000")
 
 
 class BookingCreateSerializer(serializers.Serializer):
@@ -15,17 +23,13 @@ class BookingCreateSerializer(serializers.Serializer):
          "scheduled_time": "14:30", "address": "House 12, Road 5, Dhanmondi",
          "description": "AC not cooling, need a checkup"}
 
-    Only an *active* provider can be booked — same reasoning
-    ContactCheckView/RatingCreateView already apply to their own
-    provider lookups: a pending/rejected provider hasn't been vetted
-    by admin yet and shouldn't be bookable from their (not-yet-public)
-    detail page.
+    Only an *active* provider can be booked. scheduled_date/time are only
+    checked for not being in the past.
 
-    scheduled_date/scheduled_time shape-validation only checks they're
-    not in the past — deeper availability logic (e.g. a provider's own
-    calendar) is out of scope for this MVP feature, same "keep the
-    model a plain data record, keep business rules at the edges" split
-    Rating/Report already use.
+    `description` is free text the provider reads before confirming, so
+    phone numbers / e-mails / messenger links in it are hidden, same as
+    in chat (contacts/masking.py) -- otherwise it would be an easy
+    side door around the platform.
     """
 
     provider_id = serializers.IntegerField()
@@ -54,6 +58,10 @@ class BookingCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Category not found.")
         return value
 
+    def validate_description(self, value):
+        masked, _was_masked = mask_contact_info(value)
+        return masked
+
     def validate(self, attrs):
         scheduled_date = attrs.get("scheduled_date")
         scheduled_time = attrs.get("scheduled_time")
@@ -78,24 +86,36 @@ class BookingCreateSerializer(serializers.Serializer):
 class BookingStatusUpdateSerializer(serializers.Serializer):
     """
     Validates the request body for PATCH /api/bookings/{id}/status/.
-    Body: {"status": "confirmed"}
+    Body: {"status": "confirmed", "quoted_price": "1500.00"}
 
-    Which transitions are actually allowed from the booking's *current*
-    status, and who's allowed to make them (provider vs customer), is
-    checked in BookingStatusUpdateView — this only validates that the
-    submitted value is one of Booking's real status choices at all.
+    `quoted_price` is only meaningful when the PROVIDER confirms a
+    booking (it is required then -- enforced in BookingStatusUpdateView,
+    which knows who is calling) and is ignored for every other
+    transition. There is deliberately NO payment_method field: a
+    provider must not be able to claim "paid online" to dodge the
+    commission; cash is the only method a provider can report.
+
+    Which transitions are allowed, and for whom, is checked in
+    BookingStatusUpdateView.
     """
 
     status = serializers.ChoiceField(choices=Booking.STATUS_CHOICES)
+    quoted_price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        min_value=MIN_QUOTED_PRICE,
+        max_value=MAX_QUOTED_PRICE,
+        required=False,
+    )
 
 
 class BookingListItemSerializer(serializers.ModelSerializer):
     """
-    Shapes each item in GET /api/bookings/ (the customer's own
-    bookings — "my bookings"). Includes the provider's name/photo so
-    the frontend doesn't need a second lookup per row, same reasoning
-    MyRatingListItemSerializer already documents for its own
-    provider_name field.
+    Shapes each item in GET /api/bookings/mine/ (the CUSTOMER's view).
+
+    `quoted_price` is the final total the customer pays -- the provider's
+    commission is taken from the provider's side, so no commission field
+    is ever exposed here.
     """
 
     provider_id = serializers.IntegerField(source="provider.id")
@@ -118,6 +138,7 @@ class BookingListItemSerializer(serializers.ModelSerializer):
             "address",
             "description",
             "status",
+            "quoted_price",
             "created_at",
         ]
 
@@ -131,11 +152,10 @@ class BookingListItemSerializer(serializers.ModelSerializer):
 
 class ProviderBookingListItemSerializer(serializers.ModelSerializer):
     """
-    Shapes each item in GET /api/bookings/provider/ (the logged-in
-    provider's incoming booking requests). Includes the customer's
-    name/phone — the provider needs to know who to actually call/visit,
-    same "who is this from" need ConversationListView already serves
-    for chat threads.
+    Shapes each item in GET /api/bookings/provider/ (the PROVIDER's view).
+    Includes the customer's name/phone plus the full money picture:
+    quote, commission rate/amount, what the provider keeps, and where the
+    commission stands.
     """
 
     customer_id = serializers.IntegerField(source="user.id")
@@ -143,6 +163,9 @@ class ProviderBookingListItemSerializer(serializers.ModelSerializer):
     customer_phone = serializers.CharField(source="user.phone")
     category_name = serializers.CharField(
         source="category.name", default=None, allow_null=True
+    )
+    provider_net_amount = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True
     )
 
     class Meta:
@@ -158,7 +181,41 @@ class ProviderBookingListItemSerializer(serializers.ModelSerializer):
             "address",
             "description",
             "status",
+            "quoted_price",
+            "commission_rate",
+            "commission_amount",
+            "provider_net_amount",
+            "commission_status",
+            "payment_method",
+            "completed_at",
             "created_at",
+        ]
+
+
+class ProviderStatusUpdateResponseSerializer(serializers.ModelSerializer):
+    """
+    `data` block of PATCH /api/bookings/{id}/status/ when the caller is
+    the PROVIDER: the new status plus the money fields the transition
+    just set, so the page can update the card without a refetch.
+    (The customer's response only ever contains id + status.)
+    """
+
+    provider_net_amount = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True
+    )
+
+    class Meta:
+        model = Booking
+        fields = [
+            "id",
+            "status",
+            "quoted_price",
+            "commission_rate",
+            "commission_amount",
+            "provider_net_amount",
+            "commission_status",
+            "payment_method",
+            "completed_at",
         ]
 
 
@@ -166,8 +223,7 @@ class BookingCreateResponseSerializer(serializers.ModelSerializer):
     """
     Shapes the `data` block of POST /api/bookings/'s 201 response —
     just enough for the frontend to show a confirmation without a
-    second GET, same pattern ContactLogResponseSerializer already
-    uses for POST /api/contacts/.
+    second GET.
     """
 
     provider_name = serializers.CharField(source="provider.user.name")

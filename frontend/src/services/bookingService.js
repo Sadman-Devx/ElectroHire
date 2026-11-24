@@ -60,7 +60,8 @@ export async function createBooking({
  *
  * Response `data`: [{ id, provider_id, provider_name, provider_photo,
  *   category_name, scheduled_date, scheduled_time, address,
- *   description, status, created_at }, ...]
+ *   description, status, quoted_price (the final total — no extra
+ *   fees), created_at }, ...]
  *
  *   const bookings = await getMyBookings()
  */
@@ -86,7 +87,9 @@ export async function getMyBookings() {
  *
  * Response `data`: [{ id, customer_id, customer_name, customer_phone,
  *   category_name, scheduled_date, scheduled_time, address,
- *   description, status, created_at }, ...]
+ *   description, status, quoted_price, commission_rate,
+ *   commission_amount, provider_net_amount, commission_status,
+ *   payment_method, completed_at, created_at }, ...]
  *
  *   const requests = await getProviderBookings()
  */
@@ -105,27 +108,61 @@ export async function getProviderBookings() {
  *
  * Which transitions are actually allowed depends on whether the
  * caller is the booking's provider or its customer, and the
- * booking's *current* status (see BookingStatusUpdateView's own
- * docstring for the full table) — this function just sends the
+ * booking's *current* status — this function just sends the
  * request; a disallowed transition comes back as a normal thrown
- * ServiceError with the backend's specific message
- * ("Cannot change status from 'pending' to 'completed'", etc.),
- * same as every other write endpoint in this app.
+ * ServiceError with the backend's specific message.
  *
- * Body: {"status": "confirmed" | "rejected" | "completed" | "cancelled"}
- * Response `data`: { id, status }
+ * Provider-only commission: when the PROVIDER confirms a booking they
+ * must send `quotedPrice` — the total the customer will pay. The
+ * commission is taken from the provider's side, never added on top.
+ * `quotedPrice` is ignored for every other transition.
  *
- *   await updateBookingStatus({ bookingId: 7, status: 'confirmed' })
+ * Body: {"status": "confirmed" | "rejected" | "completed" | "cancelled",
+ *        "quoted_price"?: "1500.00"}
+ * Response `data`:
+ *   customer caller: { id, status }
+ *   provider caller: { id, status, quoted_price, commission_rate,
+ *     commission_amount, provider_net_amount, commission_status,
+ *     payment_method, completed_at }
+ *
+ *   await updateBookingStatus({ bookingId: 7, status: 'confirmed', quotedPrice: '1500' })
  */
-export async function updateBookingStatus({ bookingId, status: nextStatus }) {
+export async function updateBookingStatus({ bookingId, status: nextStatus, quotedPrice }) {
   try {
-    const { data } = await apiClient.patch(`/bookings/${bookingId}/status/`, {
-      status: nextStatus,
-    })
+    const body = { status: nextStatus }
+    if (quotedPrice !== undefined && quotedPrice !== null && quotedPrice !== '') {
+      body.quoted_price = String(quotedPrice).trim()
+    }
+    const { data } = await apiClient.patch(`/bookings/${bookingId}/status/`, body)
     return data?.data ?? null
   } catch (error) {
     throw toServiceError(error)
   }
 }
 
-export default { createBooking, getMyBookings, getProviderBookings, updateBookingStatus }
+/**
+ * GET /api/bookings/provider/commission/ — Auth required (providers).
+ * Backend: bookings/views.py ProviderCommissionSummaryView.
+ *
+ * Response `data`: { rate_percent, outstanding, block_threshold,
+ *   is_blocked, total_paid, due_bookings: [...same shape as
+ *   getProviderBookings() items...] }   (money values are strings)
+ *
+ *   const summary = await getProviderCommission()
+ */
+export async function getProviderCommission() {
+  try {
+    const { data } = await apiClient.get('/bookings/provider/commission/')
+    return data?.data ?? null
+  } catch (error) {
+    throw toServiceError(error)
+  }
+}
+
+export default {
+  createBooking,
+  getMyBookings,
+  getProviderBookings,
+  getProviderCommission,
+  updateBookingStatus,
+}

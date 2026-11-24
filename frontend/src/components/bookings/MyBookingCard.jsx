@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { CalendarClock, MapPin, X } from 'lucide-react'
+import { CalendarClock, MapPin, Tag, X } from 'lucide-react'
 
 import { Avatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -7,26 +7,30 @@ import { Card } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { BookingStatusBadge } from '@/components/bookings/BookingStatusBadge'
 import { formatDate, formatTime } from '@/lib/formatDate'
+import { formatMoney } from '@/lib/formatMoney'
 
 // Mirrors backend/bookings/views.py's own _CUSTOMER_TRANSITIONS table
 // — only these two current statuses can move to "cancelled" from the
-// customer's side. Kept here (not re-derived from anything the API
-// returns) purely to decide whether to render the Cancel button at
-// all; the backend is still the actual authority that enforces it on
-// PATCH /api/bookings/{id}/status/.
+// customer's side. The backend is still the authority.
 const CUSTOMER_CANCELLABLE_STATUSES = new Set(['pending', 'confirmed'])
 
+// A quote only means something while the job is still on or done.
+const PRICE_VISIBLE_STATUSES = new Set(['confirmed', 'completed'])
+
 /**
- * Day 11: one row of MyBookingsPage's booking list — the customer's
- * side of a Booking, mirroring the shape MyRatingsSection.jsx already
- * uses for its own list items (provider identity + timestamp header,
- * body content below, Card wrapper) rather than inventing a new list
- * layout.
+ * One row of MyBookingsPage's booking list — the customer's side of a
+ * Booking.
+ *
+ * Provider-only commission: once the provider confirms, the customer
+ * sees ONE clean price (`quoted_price`) — what they were quoted is what
+ * they pay. The platform's commission is taken from the provider, so
+ * no fee, split or commission is ever shown (or sent) to the customer.
  *
  *   <MyBookingCard booking={booking} onCancel={handleCancel} isCancelling={false} />
  */
 function MyBookingCard({ booking, onCancel, isCancelling }) {
   const canCancel = CUSTOMER_CANCELLABLE_STATUSES.has(booking.status)
+  const price = PRICE_VISIBLE_STATUSES.has(booking.status) ? formatMoney(booking.quoted_price) : null
 
   return (
     <Card className="p-4 sm:p-5">
@@ -68,6 +72,15 @@ function MyBookingCard({ booking, onCancel, isCancelling }) {
 
           {booking.description ? (
             <p className="mt-2 text-sm text-[var(--color-text-muted)]">{booking.description}</p>
+          ) : null}
+
+          {price ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-input)] bg-[var(--color-bg)] px-3 py-2">
+              <Tag className="h-4 w-4 flex-shrink-0 text-[var(--color-text-muted)]" aria-hidden="true" />
+              <span className="text-sm text-[var(--color-text-muted)]">Total price</span>
+              <span className="text-sm font-bold text-[var(--color-text)]">{price}</span>
+              <span className="text-xs text-[var(--color-text-muted)]">· final, no extra fees</span>
+            </div>
           ) : null}
 
           {canCancel ? (

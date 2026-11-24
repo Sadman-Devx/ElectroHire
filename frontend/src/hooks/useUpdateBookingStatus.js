@@ -5,28 +5,27 @@ import { updateBookingStatus } from '@/services/bookingService'
 /**
  * Wraps PATCH /api/bookings/{id}/status/ in loading/error state.
  * Shared by MyBookingsPage (customer cancels) and ProviderBookingsPage
- * (provider confirms/rejects/completes) — same mutation, two very
- * different sets of allowed target statuses (enforced backend-side by
- * BookingStatusUpdateView, not duplicated here).
+ * (provider confirms with a quote / rejects / completes).
  *
  * Tracks *which* booking rows are mid-update as a Set rather than one
- * shared boolean, deliberately — a plain `isSubmitting` boolean would
- * let a second row's button re-enable (and be clickable) the instant
- * a first row's request settles even while that first request is
- * still technically in flight from the visitor's point of view,
- * because both rows share the same page and could plausibly be
- * clicked in quick succession. `isPending(bookingId)` only disables
- * the specific row actually being updated.
+ * shared boolean, so only the row actually being updated is disabled.
+ *
+ * `updateStatus` resolves to:
+ *   - the server's `data` object on success (truthy — for a provider it
+ *     carries the commission fields the transition just set), or `true`
+ *     if the server sent no body,
+ *   - `false` on failure (message in `error`).
+ * Existing callers that only do `if (ok)` keep working unchanged.
  *
  *   const { updateStatus, isPending, error } = useUpdateBookingStatus()
- *   const ok = await updateStatus({ bookingId: 7, status: 'cancelled' })
- *   if (ok) applyStatusUpdate(7, 'cancelled') // from useMyBookings/useProviderBookings
+ *   const result = await updateStatus({ bookingId: 7, status: 'confirmed', quotedPrice: '1500' })
+ *   if (result) applyStatusUpdate(7, 'confirmed', typeof result === 'object' ? result : {})
  */
 export function useUpdateBookingStatus() {
   const [pendingIds, setPendingIds] = useState(() => new Set())
   const [error, setError] = useState(null)
 
-  const updateStatus = useCallback(async ({ bookingId, status: nextStatus }) => {
+  const updateStatus = useCallback(async ({ bookingId, status: nextStatus, quotedPrice }) => {
     setPendingIds((current) => {
       const next = new Set(current)
       next.add(bookingId)
@@ -35,8 +34,8 @@ export function useUpdateBookingStatus() {
     setError(null)
 
     try {
-      await updateBookingStatus({ bookingId, status: nextStatus })
-      return true
+      const result = await updateBookingStatus({ bookingId, status: nextStatus, quotedPrice })
+      return result ?? true
     } catch (err) {
       setError(err.message || 'Could not update this booking. Please try again.')
       return false
