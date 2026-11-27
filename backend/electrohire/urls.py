@@ -30,6 +30,7 @@ urlpatterns = [
     path('api/reports/', include('reports.urls')),  # Dev 2, Day 8
     path('api/bookings/', include('bookings.urls')),  # Dev 2, Day 11
     path('api/assistant/', include('assistant.urls')),  # Hackathon Phase 1   <-- NOTUN
+    path('api/wallet/', include('wallet.urls')),  # Provider wallet + commission ledger
 
 ]
 

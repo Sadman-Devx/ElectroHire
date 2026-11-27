@@ -7,13 +7,12 @@ from rest_framework.views import APIView
 from categories.models import Category
 from core.response import error_response, first_error_message, success_response
 from providers.models import Provider
+from wallet.services import get_wallet_summary, post_completion_ledger
 
 from .commission import (
     COMMISSION_UPDATE_FIELDS,
     apply_completion,
     apply_quote,
-    get_block_threshold,
-    get_commission_rate,
     is_provider_blocked,
     money_str,
     outstanding_for_provider,
@@ -138,12 +137,14 @@ class ProviderCommissionSummaryView(APIView):
     """
     GET /api/bookings/provider/commission/
 
-    The provider's commission ledger at a glance: the current rate, how
-    much they owe the platform right now (cash jobs they were paid for in
-    full), whether that has reached the block threshold, how much they
-    have already paid, and the list of jobs that make up the balance.
+    The provider's commission position at a glance, read from their
+    wallet (the `wallet` app is the single source of truth): the current
+    rate, how much they owe the platform right now, whether that has
+    reached the block threshold, how much commission has already been
+    cleared, their available balance, and the jobs that make up the due.
 
     Registered at a literal path ahead of "<int:pk>/status/" in urls.py.
+    The full statement lives at GET /api/wallet/ and /api/wallet/transactions/.
     """
 
     permission_classes = [IsAuthenticated]
@@ -155,12 +156,16 @@ class ProviderCommissionSummaryView(APIView):
                 "You do not have a provider profile", status_code=status.HTTP_404_NOT_FOUND
             )
 
-        outstanding = outstanding_for_provider(provider)
-        threshold = get_block_threshold()
+        wallet = get_wallet_summary(provider)
         paid_total = (
             Booking.objects.filter(
-                provider=provider, commission_status=Booking.COMMISSION_PAID
-            ).aggregate(total=Sum("commission_amount"))["total"]
+                provider=provider,
+                commission_status__in=[
+                    Booking.COMMISSION_DUE,
+                    Booking.COMMISSION_PAID,
+                    Booking.COMMISSION_DEDUCTED,
+                ],
+            ).aggregate(total=Sum("commission_settled_amount"))["total"]
             or 0
         )
 
@@ -173,11 +178,13 @@ class ProviderCommissionSummaryView(APIView):
         )
 
         data = {
-            "rate_percent": money_str(get_commission_rate()),
-            "outstanding": money_str(outstanding),
-            "block_threshold": money_str(threshold),
-            "is_blocked": threshold > 0 and outstanding >= threshold,
+            "rate_percent": wallet["rate_percent"],
+            "outstanding": wallet["due_amount"],
+            "block_threshold": wallet["block_threshold"],
+            "is_blocked": wallet["is_blocked"],
             "total_paid": money_str(paid_total),
+            "balance": wallet["balance"],
+            "available_balance": wallet["available_balance"],
             "due_bookings": ProviderBookingListItemSerializer(
                 due_bookings, many=True
             ).data,
@@ -197,8 +204,11 @@ class BookingStatusUpdateView(APIView):
                              locked in; commission_status "pending".
                              Refused (403) while the provider's unpaid
                              commission is at/over the block threshold.
-      provider completes  -> cash job: commission becomes "due"
-                             (a receivable from the provider).
+      provider completes  -> cash job: commission is debited from the
+                             provider's wallet (shows as "due" unless
+                             their balance already covers it); online
+                             job: price - commission is credited and
+                             clears any due. See wallet/services.py.
       provider rejects /
       customer cancels    -> commission voided (nothing was earned).
 
@@ -265,6 +275,11 @@ class BookingStatusUpdateView(APIView):
                     apply_quote(booking, quoted_price)
                 elif new_status == Booking.STATUS_COMPLETED:
                     apply_completion(booking)
+                    # Ledger: cash job -> commission debited from the
+                    # provider's wallet; online job -> earning credited
+                    # (clearing any due first). Same transaction as the
+                    # status change, so they succeed or fail together.
+                    post_completion_ledger(booking)
                 elif new_status == Booking.STATUS_REJECTED:
                     void_commission(booking)
             else:

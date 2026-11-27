@@ -36,6 +36,12 @@ class Booking(models.Model):
       - payment_method    "cash" (provider collects, owes commission) or
                           "online" (reserved: platform collects and
                           deducts commission from the payout).
+      - commission_settled_amount
+                          how much of commission_amount has already been
+                          cleared (auto-deducted from the provider's
+                          wallet / online earnings, paid by hand, or
+                          waived). The ledger itself lives in the
+                          `wallet` app (wallet/models.py).
       - completed_at      when the provider marked the job completed.
       - commission_paid_at / commission_reference
                           filled by admin when the provider settles dues.
@@ -112,6 +118,9 @@ class Booking(models.Model):
     commission_amount = models.DecimalField(
         max_digits=10, decimal_places=2, default=Decimal("0.00")
     )
+    commission_settled_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0.00")
+    )
     commission_status = models.CharField(
         max_length=20,
         choices=COMMISSION_STATUS_CHOICES,
@@ -153,3 +162,11 @@ class Booking(models.Model):
         if self.quoted_price is None or self.commission_status == self.COMMISSION_NONE:
             return None
         return (self.quoted_price - self.commission_amount).quantize(Decimal("0.01"))
+
+    @property
+    def commission_remaining(self):
+        """Commission still owed on this job (0 unless its status is "due")."""
+        if self.commission_status != self.COMMISSION_DUE:
+            return Decimal("0.00")
+        remaining = self.commission_amount - self.commission_settled_amount
+        return max(remaining, Decimal("0.00")).quantize(Decimal("0.01"))
