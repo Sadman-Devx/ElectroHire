@@ -1,4 +1,5 @@
 import { AlertTriangle, Wallet } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
 import { Card } from '@/components/ui/card'
 import { formatMoney, toMoneyNumber } from '@/lib/formatMoney'
@@ -24,6 +25,7 @@ function CommissionSummaryCard({ summary }) {
   const outstanding = toMoneyNumber(summary.outstanding) ?? 0
   const threshold = toMoneyNumber(summary.block_threshold) ?? 0
   const rate = toMoneyNumber(summary.rate_percent)
+  const available = toMoneyNumber(summary.available_balance) ?? 0
   const isBlocked = Boolean(summary.is_blocked)
   const usedFraction = threshold > 0 ? Math.min(outstanding / threshold, 1) : 0
   const isNearLimit = !isBlocked && threshold > 0 && usedFraction >= 0.75
@@ -64,10 +66,11 @@ function CommissionSummaryCard({ summary }) {
           <p className="mt-1 text-sm text-[var(--color-text-muted)]">
             Customers pay exactly the price you quote — no extra fees are added for them. The
             commission is taken from your earnings. For cash jobs you collect the full amount, so
-            the commission is tracked here until you pay it.
+            the commission is added to your wallet due until you pay it (online jobs clear it
+            automatically).
           </p>
 
-          <div className="mt-3 grid grid-cols-2 gap-3 sm:max-w-md">
+          <div className="mt-3 grid grid-cols-3 gap-3 sm:max-w-md">
             <div>
               <p className="text-xs text-[var(--color-text-muted)]">You owe</p>
               <p
@@ -77,6 +80,12 @@ function CommissionSummaryCard({ summary }) {
                 )}
               >
                 {formatMoney(outstanding) ?? '৳0'}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-[var(--color-text-muted)]">Available</p>
+              <p className="text-lg font-bold text-[var(--color-success)]">
+                {formatMoney(available) ?? '৳0'}
               </p>
             </div>
             <div>
@@ -115,10 +124,18 @@ function CommissionSummaryCard({ summary }) {
             </div>
           ) : null}
 
+          <Link
+            to="/provider/wallet"
+            className="mt-3 inline-block text-xs font-semibold text-[var(--color-secondary)] hover:underline"
+          >
+            View wallet statement →
+          </Link>
+
           {isBlocked ? (
             <p role="alert" className="mt-3 text-sm font-medium text-[var(--color-danger)]">
               You can&rsquo;t confirm new bookings until you pay your dues. Contact support with
-              your payment reference and we&rsquo;ll mark it paid.
+              your payment reference and we&rsquo;ll mark it paid — or complete an online job,
+              which clears your due automatically.
             </p>
           ) : isNearLimit ? (
             <p className="mt-3 text-sm font-medium text-[var(--color-primary-hover)]">

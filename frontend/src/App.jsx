@@ -21,6 +21,7 @@ import ReportProviderPage from '@/pages/ReportProviderPage'
 import BookProviderPage from '@/pages/BookProviderPage'
 import MyBookingsPage from '@/pages/MyBookingsPage'
 import ProviderBookingsPage from '@/pages/ProviderBookingsPage'
+import ProviderWalletPage from '@/pages/ProviderWalletPage'
 import AssistantPage from '@/pages/AssistantPage'
 import TermsPage from '@/pages/TermsPage'
 import NotFoundPage from '@/pages/NotFoundPage'
@@ -78,6 +79,16 @@ function App() {
         element={
           <ProtectedRoute>
             <ProviderBookingsPage />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Provider wallet + commission ledger */}
+      <Route
+        path="/provider/wallet"
+        element={
+          <ProtectedRoute>
+            <ProviderWalletPage />
           </ProtectedRoute>
         }
       />

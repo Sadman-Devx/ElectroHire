@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
  * - Chats  -> /chats           (Day 7, Dev 3 — ChatsPage.jsx)
  * - Bookings -> /provider/bookings (Day 11 — ProviderBookingsPage.jsx,
  *   the provider's incoming booking requests)
+ * - Wallet -> /provider/wallet (balance, commission due and ledger statement)
  * - Reviews -> /provider/reviews (not yet built — same forward-link
  *   pattern the app already uses elsewhere, e.g. ProviderCard linking
  *   to /providers/:id a full day before that page existed)
@@ -27,6 +28,7 @@ const NAV_LINKS = [
   { label: 'Dashboard', to: '/provider/dashboard' },
   { label: 'Chats', to: '/chats' },
   { label: 'Bookings', to: '/provider/bookings' },
+  { label: 'Wallet', to: '/provider/wallet' },
   { label: 'Reviews', to: '/provider/reviews' },
   { label: 'Profile', to: '/provider/profile-edit' },
 ]
