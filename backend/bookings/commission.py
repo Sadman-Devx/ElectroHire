@@ -21,7 +21,7 @@ until they clear them (see BookingStatusUpdateView).
 Settings (read from Django settings first, then the environment, then
 the defaults below -- so nothing has to change in settings.py):
     COMMISSION_RATE_PERCENT      default 10    (0 - 100)
-    COMMISSION_BLOCK_THRESHOLD   default 2000  (0 disables blocking)
+    COMMISSION_BLOCK_THRESHOLD   default 1000  (0 disables blocking)
 
 This module has no HTTP code, only money rules, so the views, the admin
 and any future payment-gateway code all share exactly one definition.
@@ -30,7 +30,6 @@ and any future payment-gateway code all share exactly one definition.
 import os
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
-from django.db.models import Sum
 from django.conf import settings
 from django.utils import timezone
 
@@ -38,7 +37,7 @@ from .models import Booking
 
 MONEY_QUANT = Decimal("0.01")
 DEFAULT_RATE_PERCENT = Decimal("10")
-DEFAULT_BLOCK_THRESHOLD = Decimal("2000")
+DEFAULT_BLOCK_THRESHOLD = Decimal("1000")
 
 # Every column a commission transition may touch -- the views pass this
 # (plus "status"/"updated_at") to save(update_fields=...).
@@ -47,6 +46,7 @@ COMMISSION_UPDATE_FIELDS = [
     "commission_rate",
     "commission_amount",
     "commission_status",
+    "commission_settled_amount",
     "payment_method",
     "completed_at",
 ]
@@ -95,11 +95,15 @@ def money_str(value):
 
 
 def outstanding_for_provider(provider):
-    """Total commission this provider currently owes the platform."""
-    total = Booking.objects.filter(
-        provider=provider, commission_status=Booking.COMMISSION_DUE
-    ).aggregate(total=Sum("commission_amount"))["total"]
-    return Decimal(total or 0).quantize(MONEY_QUANT)
+    """
+    Total commission this provider currently owes the platform: the
+    negative part of their wallet balance (wallet/services.py). The
+    wallet is the single source of truth, so cash dues, online
+    auto-deductions and manual payments all count correctly.
+    """
+    from wallet.services import get_due_amount  # lazy: wallet imports this module
+
+    return get_due_amount(provider.pk)
 
 
 def is_provider_blocked(provider):
@@ -125,14 +129,23 @@ def apply_quote(booking, quoted_price):
 
 def apply_completion(booking):
     """
-    Job finished. Cash is the only method a provider can report (no
-    payment gateway yet), so the commission becomes a receivable.
-    "online"/"deducted" is reserved for the future gateway code, which
-    is the only thing that can honestly say the platform already holds
-    the money -- never a provider's own claim.
+    Job finished. Cash is the only method a provider can report, so the
+    commission becomes a receivable (wallet.services.post_cash_commission
+    then debits it). "online" can only be set by the platform
+    (wallet.services.mark_booking_paid_online) -- never a provider's own
+    claim.
     """
-    booking.payment_method = Booking.PAYMENT_CASH
     booking.completed_at = timezone.now()
+
+    # A job the platform already flagged as paid online (gateway/admin,
+    # never the provider) keeps that method; wallet.services finalises
+    # its commission status when it credits the earning.
+    if booking.payment_method == Booking.PAYMENT_ONLINE:
+        return
+
+    booking.payment_method = Booking.PAYMENT_CASH
+    if booking.commission_status == Booking.COMMISSION_WAIVED:
+        return  # admin forgave this commission before the job finished
     if booking.quoted_price is None or booking.commission_amount <= 0:
         booking.commission_status = Booking.COMMISSION_NONE
     else:
@@ -143,4 +156,5 @@ def void_commission(booking):
     """Cancelled/rejected: nothing was earned, so no commission exists."""
     booking.commission_amount = Decimal("0.00")
     booking.commission_rate = None
+    booking.commission_settled_amount = Decimal("0.00")
     booking.commission_status = Booking.COMMISSION_NONE

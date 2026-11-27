@@ -107,6 +107,7 @@ INSTALLED_APPS = [
     'ratings',
     'reports',
     'bookings',  # Day 11, Dev 2 — Provider Booking System
+    'wallet',  # Provider wallet + commission ledger
     'assistant',  # Hackathon Phase 1 — AI problem-analysis assistant
     'core',
 ]

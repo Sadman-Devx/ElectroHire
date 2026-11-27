@@ -167,6 +167,9 @@ class ProviderBookingListItemSerializer(serializers.ModelSerializer):
     provider_net_amount = serializers.DecimalField(
         max_digits=10, decimal_places=2, read_only=True
     )
+    commission_remaining = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True
+    )
 
     class Meta:
         model = Booking
@@ -184,6 +187,8 @@ class ProviderBookingListItemSerializer(serializers.ModelSerializer):
             "quoted_price",
             "commission_rate",
             "commission_amount",
+            "commission_settled_amount",
+            "commission_remaining",
             "provider_net_amount",
             "commission_status",
             "payment_method",
@@ -203,6 +208,9 @@ class ProviderStatusUpdateResponseSerializer(serializers.ModelSerializer):
     provider_net_amount = serializers.DecimalField(
         max_digits=10, decimal_places=2, read_only=True
     )
+    commission_remaining = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True
+    )
 
     class Meta:
         model = Booking
@@ -212,6 +220,8 @@ class ProviderStatusUpdateResponseSerializer(serializers.ModelSerializer):
             "quoted_price",
             "commission_rate",
             "commission_amount",
+            "commission_settled_amount",
+            "commission_remaining",
             "provider_net_amount",
             "commission_status",
             "payment_method",
